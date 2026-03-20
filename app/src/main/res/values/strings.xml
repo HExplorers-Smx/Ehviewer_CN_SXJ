@@ -1052,4 +1052,10 @@
     <string name="imported_archive_info_message">This is an item imported from local storage</string>
     <string name="imported_archive_category">Local Import</string>
 
+    <string name="search_language_all">All languages</string>
+    <string name="batch_download_current_page_title">Download all on this page</string>
+    <string name="batch_download_current_page_message">Long press now selects all galleries currently loaded on this page and adds them to the download queue. Continue?</string>
+    <string name="batch_download_current_page_empty">No galleries available to batch download</string>
+    <string name="batch_selection_empty">Select at least one gallery first</string>
+    <string name="batch_selection_actions_title">Batch actions (%1$d)</string>
 </resources>

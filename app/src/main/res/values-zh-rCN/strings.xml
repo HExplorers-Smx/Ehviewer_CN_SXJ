@@ -963,4 +963,10 @@
     <string name="imported_archive_info_message">这是从本地存储中导入的项目</string>
     <string name="imported_archive_category">本地导入</string>
 
+    <string name="search_language_all">全部语言</string>
+    <string name="batch_download_current_page_title">批量下载当前页</string>
+    <string name="batch_download_current_page_message">长按现在会选中当前页已加载的全部漫画，并批量加入下载队列，是否继续？</string>
+    <string name="batch_download_current_page_empty">当前页没有可批量下载的漫画</string>
+    <string name="batch_selection_empty">请先选中至少一项漫画</string>
+    <string name="batch_selection_actions_title">批量操作（%1$d）</string>
 </resources>

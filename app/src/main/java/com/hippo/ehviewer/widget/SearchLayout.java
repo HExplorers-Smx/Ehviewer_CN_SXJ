@@ -30,6 +30,7 @@ import android.view.ViewGroup;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
@@ -77,6 +78,27 @@ public class SearchLayout extends EasyRecyclerView implements CompoundButton.OnC
             {ITEM_TYPE_IMAGE, ITEM_TYPE_ACTION}, // SEARCH_MODE_IMAGE
     };
 
+    private static final String[] LANGUAGE_TAGS = {
+            null,
+            "language:japanese",
+            "language:english",
+            "language:chinese",
+            "language:korean",
+            "language:spanish",
+            "language:russian",
+            "language:french",
+            "language:portuguese",
+            "language:thai",
+            "language:german",
+            "language:italian",
+            "language:vietnamese",
+            "language:polish",
+            "language:hungarian",
+            "language:dutch",
+            "language:n/a",
+            "language:other"
+    };
+
     private LayoutInflater mInflater;
 
     private int mSearchMode = SEARCH_MODE_NORMAL;
@@ -84,6 +106,7 @@ public class SearchLayout extends EasyRecyclerView implements CompoundButton.OnC
 
     private View mNormalView;
     private CategoryTable mCategoryTable;
+    private Spinner mLanguageSpinner;
     private RadioGridGroup mNormalSearchMode;
     private ImageView mNormalSearchModeHelp;
     private SwitchCompat mEnableAdvanceSwitch;
@@ -134,6 +157,7 @@ public class SearchLayout extends EasyRecyclerView implements CompoundButton.OnC
         View normalView = mInflater.inflate(R.layout.search_normal, null);
         mNormalView = normalView;
         mCategoryTable = (CategoryTable) normalView.findViewById(R.id.search_category_table);
+        mLanguageSpinner = (Spinner) normalView.findViewById(R.id.search_language_spinner);
         mNormalSearchMode = (RadioGridGroup) normalView.findViewById(R.id.normal_search_mode);
         mNormalSearchModeHelp = (ImageView) normalView.findViewById(R.id.normal_search_mode_help);
         mEnableAdvanceSwitch = (SwitchCompat) normalView.findViewById(R.id.search_enable_advance);
@@ -170,6 +194,62 @@ public class SearchLayout extends EasyRecyclerView implements CompoundButton.OnC
 
     public void setNormalSearchMode(int id) {
         mNormalSearchMode.check(id);
+    }
+
+    private static String stripKnownLanguageFilter(String query) {
+        if (query == null) {
+            return null;
+        }
+        String result = query;
+        for (String tag : LANGUAGE_TAGS) {
+            if (tag == null) {
+                continue;
+            }
+            result = result.replace(tag + "$", " ");
+            result = result.replace(tag, " ");
+        }
+        result = result.replaceAll("\\s+", " ").trim();
+        return result;
+    }
+
+    private int detectLanguageSelection(String query) {
+        if (query == null) {
+            return 0;
+        }
+        String lower = query.toLowerCase();
+        for (int i = 1; i < LANGUAGE_TAGS.length; i++) {
+            String tag = LANGUAGE_TAGS[i];
+            if (lower.contains(tag) || lower.contains(tag + "$")) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private String appendSelectedLanguage(String query, int searchMode) {
+        String cleanQuery = stripKnownLanguageFilter(query);
+        if (searchMode == R.id.search_specify_uploader || searchMode == R.id.search_specify_tag) {
+            return cleanQuery;
+        }
+        int position = mLanguageSpinner != null ? mLanguageSpinner.getSelectedItemPosition() : 0;
+        if (position <= 0 || position >= LANGUAGE_TAGS.length) {
+            return cleanQuery;
+        }
+        String languageTag = LANGUAGE_TAGS[position];
+        if (cleanQuery == null || cleanQuery.isEmpty()) {
+            return languageTag;
+        }
+        return cleanQuery + " " + languageTag;
+    }
+
+    public void setLanguageFromKeyword(String keyword) {
+        if (mLanguageSpinner != null) {
+            mLanguageSpinner.setSelection(detectLanguageSelection(keyword));
+        }
+    }
+
+    public String stripLanguageFilterForDisplay(String keyword) {
+        return stripKnownLanguageFilter(keyword);
     }
 
     @Override
@@ -257,6 +337,7 @@ public class SearchLayout extends EasyRecyclerView implements CompoundButton.OnC
                         urlBuilder.setMode(ListUrlBuilder.MODE_TAG);
                         break;
                 }
+                query = appendSelectedLanguage(query, nsMode);
                 urlBuilder.setKeyword(query);
                 urlBuilder.setCategory(mCategoryTable.getCategory());
                 if (mEnableAdvance) {

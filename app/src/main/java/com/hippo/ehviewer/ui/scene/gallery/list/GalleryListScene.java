@@ -34,6 +34,7 @@ import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
 import android.text.style.ImageSpan;
+import android.util.SparseBooleanArray;
 import android.util.Log;
 import android.view.Display;
 import android.view.Gravity;
@@ -140,6 +141,7 @@ import java.util.concurrent.ExecutorService;
 
 public final class GalleryListScene extends BaseScene
         implements EasyRecyclerView.OnItemClickListener, EasyRecyclerView.OnItemLongClickListener,
+        EasyRecyclerView.CustomChoiceListener,
         SearchBar.Helper, SearchBar.OnStateChangeListener, FastScroller.OnDragHandlerListener,
         SearchLayout.Helper, SearchBarMover.Helper, View.OnClickListener, FabLayout.OnClickFabListener,
         FabLayout.OnExpandListener, SubscriptionCallback {
@@ -277,6 +279,9 @@ public final class GalleryListScene extends BaseScene
 
     @State
     private int mState = STATE_NORMAL;
+
+    private final List<GalleryInfo> mModifyGiList = new ArrayList<>();
+    private final java.util.HashSet<Long> mCheckedGalleryGidSet = new java.util.HashSet<>();
 
     // Double click back exit
     private long mPressBackTime = 0;
@@ -554,16 +559,37 @@ public final class GalleryListScene extends BaseScene
         int category = builder.getCategory();
 
         // Update normal search mode
-        mSearchLayout.setNormalSearchMode(builder.getMode() == ListUrlBuilder.MODE_SUBSCRIPTION
-                ? R.id.search_subscription_search
-                : R.id.search_normal_search);
+        int normalSearchModeId;
+        switch (builder.getMode()) {
+            case ListUrlBuilder.MODE_SUBSCRIPTION:
+                normalSearchModeId = R.id.search_subscription_search;
+                break;
+            case ListUrlBuilder.MODE_UPLOADER:
+                normalSearchModeId = R.id.search_specify_uploader;
+                break;
+            case ListUrlBuilder.MODE_TAG:
+                normalSearchModeId = R.id.search_specify_tag;
+                break;
+            default:
+                normalSearchModeId = R.id.search_normal_search;
+                break;
+        }
+        mSearchLayout.setNormalSearchMode(normalSearchModeId);
+
+        if (mSearchLayout != null) {
+            mSearchLayout.setLanguageFromKeyword(keyword);
+        }
 
         // Update search edit text
-        if (!TextUtils.isEmpty(keyword) && null != mSearchBar) {
-            if (builder.getMode() == ListUrlBuilder.MODE_TAG) {
-                keyword = wrapTagKeyword(keyword);
+        if (null != mSearchBar) {
+            String displayKeyword = keyword;
+            if (mSearchLayout != null) {
+                displayKeyword = mSearchLayout.stripLanguageFilterForDisplay(displayKeyword);
             }
-            mSearchBar.setText(keyword);
+            if (!TextUtils.isEmpty(displayKeyword) && builder.getMode() == ListUrlBuilder.MODE_TAG) {
+                displayKeyword = wrapTagKeyword(displayKeyword);
+            }
+            mSearchBar.setText(displayKeyword == null ? "" : displayKeyword);
             mSearchBar.cursorToEnd();
         }
 
@@ -640,6 +666,8 @@ public final class GalleryListScene extends BaseScene
         mRecyclerView.setClipToPadding(false);
         mRecyclerView.setOnItemClickListener(this);
         mRecyclerView.setOnItemLongClickListener(this);
+        mRecyclerView.setChoiceMode(EasyRecyclerView.CHOICE_MODE_MULTIPLE_CUSTOM);
+        mRecyclerView.setCustomCheckedListener(this);
         assert mOnScrollListener != null;
         mRecyclerView.addOnScrollListener(mOnScrollListener);
 //        mRecyclerView.setOnGenericMotionListener(this::onGenericMotion);
@@ -696,6 +724,12 @@ public final class GalleryListScene extends BaseScene
 
 
     private void onThumbItemClick(int position, View view, GalleryInfo gi) {
+        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+            if (position != RecyclerView.NO_POSITION) {
+                mRecyclerView.toggleItemChecked(position);
+            }
+            return;
+        }
         LoadImageViewNew thumb = view.findViewById(R.id.thumb_new);
         if (thumb.mFailed) {
             thumb.load();
@@ -1175,6 +1209,11 @@ public final class GalleryListScene extends BaseScene
             return;
         }
 
+        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+            mRecyclerView.outOfCustomChoiceMode();
+            return;
+        }
+
         if (null != mFabLayout && mFabLayout.isExpanded()) {
             mFabLayout.setExpanded(false);
             return;
@@ -1223,6 +1262,13 @@ public final class GalleryListScene extends BaseScene
         if (null == mHelper || null == mRecyclerView) {
             return false;
         }
+        if (mRecyclerView.isInCustomChoice() && view != null) {
+            int position = mRecyclerView.getChildAdapterPosition(view);
+            if (position != RecyclerView.NO_POSITION) {
+                mRecyclerView.toggleItemChecked(position);
+            }
+            return true;
+        }
         if (gi == null) {
             return true;
         }
@@ -1249,88 +1295,224 @@ public final class GalleryListScene extends BaseScene
     }
 
     public boolean onItemLongClick(GalleryInfo gi, View view) {
-        final Context context = getEHContext();
-        final MainActivity activity = getActivity2();
-        if (null == context || null == activity || null == mHelper) {
+        if (mRecyclerView == null || mSearchBar == null) {
             return false;
         }
 
-        if (gi == null) {
+        if (mState != STATE_NORMAL) {
+            setState(STATE_NORMAL);
+        }
+
+        int position = mRecyclerView.getChildAdapterPosition(view);
+        if (position == RecyclerView.NO_POSITION && mHelper != null && gi != null) {
+            List<GalleryInfo> allGalleries = mHelper.getData();
+            if (allGalleries != null) {
+                position = allGalleries.indexOf(gi);
+            }
+        }
+
+        if (position == RecyclerView.NO_POSITION) {
             return true;
         }
 
-        boolean downloaded = mDownloadManager.getDownloadState(gi.gid) != DownloadInfo.STATE_INVALID;
-        boolean favourited = gi.favoriteSlot != -2;
-
-        CharSequence[] items = new CharSequence[]{
-                context.getString(R.string.read),
-                context.getString(downloaded ? R.string.delete_downloads : R.string.download),
-                context.getString(favourited ? R.string.remove_from_favourites : R.string.add_to_favourites),
-        };
-
-        int[] icons = new int[]{
-                R.drawable.v_book_open_x24,
-                downloaded ? R.drawable.v_delete_x24 : R.drawable.v_download_x24,
-                favourited ? R.drawable.v_heart_broken_x24 : R.drawable.v_heart_x24,
-        };
-
-        @SuppressLint("InflateParams") LinearLayout linearLayout = (LinearLayout) getLayoutInflater2().inflate(R.layout.gallery_item_dialog_coustom_title, null);
-
-        linearLayout.setOnClickListener(l -> onItemClick(view, gi));
-
-        LoadImageViewNew imageViewNew = linearLayout.findViewById(R.id.dialog_thumb);
-
-        imageViewNew.load(EhCacheKeyFactory.getThumbKey(gi.gid), gi.thumb);
-
-        imageViewNew.setOnClickListener(l -> onItemClick(view, gi));
-
-        buildChipGroup(gi, linearLayout.findViewById(R.id.tab_tag_flow));
-
-        TextView textView = linearLayout.findViewById(R.id.title_text);
-        textView.setText(EhUtils.getSuitableTitle(gi));
-        textView.setOnClickListener(l -> {
-            AppHelper.copyPlainText(EhUtils.getSuitableTitle(gi), getEHContext());
-            Toast toast = Toast.makeText(getEHContext(), "标题文本已复制", Toast.LENGTH_SHORT);
-            toast.setGravity(Gravity.CENTER, 0, 0);
-            toast.show();
-        });
-
-
-        alertDialog = new AlertDialog.Builder(context)
-//                .setTitle(EhUtils.getSuitableTitle(gi))
-//                .setView(imageViewNew)
-                .setCustomTitle(linearLayout)
-                .setAdapter(new SelectItemWithIconAdapter(context, items, icons), (dialog, which) -> {
-                    switch (which) {
-                        case 0: // Read
-                            Intent intent = new Intent(activity, GalleryActivity.class);
-                            intent.setAction(GalleryActivity.ACTION_EH);
-                            intent.putExtra(GalleryActivity.KEY_GALLERY_INFO, gi);
-                            startActivity(intent);
-                            break;
-                        case 1: // Download
-                            if (downloaded) {
-                                new AlertDialog.Builder(context)
-                                        .setTitle(R.string.download_remove_dialog_title)
-                                        .setMessage(getString(R.string.download_remove_dialog_message, gi.title))
-                                        .setPositiveButton(android.R.string.ok, (dialog1, which1) -> mDownloadManager.deleteDownload(gi.gid))
-                                        .show();
-                            } else {
-                                CommonOperations.startDownload(activity, gi, false);
-                            }
-                            break;
-                        case 2: // Favorites
-                            if (favourited) {
-                                CommonOperations.removeFromFavorites(activity, gi, new RemoveFromFavoriteListener(context, activity.getStageId(), getTag()));
-                            } else {
-                                CommonOperations.addToFavorites(activity, gi, new AddToFavoriteListener(context, activity.getStageId(), getTag()), false);
-                            }
-                            break;
-                    }
-                }).show();
+        if (!mRecyclerView.isInCustomChoice()) {
+            mRecyclerView.intoCustomChoiceMode();
+        }
+        mRecyclerView.toggleItemChecked(position);
         return true;
     }
 
+    private void collectCheckedGalleryInfos() {
+        mModifyGiList.clear();
+        if (mRecyclerView == null || mHelper == null) {
+            return;
+        }
+
+        SparseBooleanArray stateArray = mRecyclerView.getCheckedItemPositions();
+        int n = stateArray.size();
+        for (int i = 0; i < n; i++) {
+            if (stateArray.valueAt(i)) {
+                GalleryInfo checkedGi = mHelper.getDataAtEx(stateArray.keyAt(i));
+                if (checkedGi != null) {
+                    mModifyGiList.add(checkedGi);
+                }
+            }
+        }
+    }
+
+    private boolean checkedAll() {
+        return mRecyclerView != null && mAdapter != null && mAdapter.getItemCount() > 0
+                && mAdapter.getItemCount() == mRecyclerView.getCheckedItemCount();
+    }
+
+    private void selectAllOrClear(FabLayout view, FloatingActionButton fab) {
+        if (mRecyclerView == null || mAdapter == null) {
+            return;
+        }
+
+        if (!mRecyclerView.isInCustomChoice()) {
+            mRecyclerView.intoCustomChoiceMode();
+        }
+
+        if (checkedAll()) {
+            mRecyclerView.outOfCustomChoiceMode();
+        } else {
+            mRecyclerView.checkAll();
+        }
+        updateSelectionFabIcons();
+        view.setExpanded(true);
+    }
+
+    private void invertSelection() {
+        if (mRecyclerView == null || mAdapter == null) {
+            return;
+        }
+        if (!mRecyclerView.isInCustomChoice()) {
+            mRecyclerView.intoCustomChoiceMode();
+        }
+
+        SparseBooleanArray stateArray = mRecyclerView.getCheckedItemPositions();
+        int count = mAdapter.getItemCount();
+        for (int i = 0; i < count; i++) {
+            boolean checked = stateArray.get(i, false);
+            if (checked || !checked) {
+                mRecyclerView.toggleItemChecked(i);
+            }
+        }
+        updateSelectionFabIcons();
+    }
+
+    private void selectUndownloadedOnly() {
+        if (mRecyclerView == null || mAdapter == null || mHelper == null || mDownloadManager == null) {
+            return;
+        }
+        if (!mRecyclerView.isInCustomChoice()) {
+            mRecyclerView.intoCustomChoiceMode();
+        }
+
+        if (mRecyclerView.getCheckedItemCount() > 0) {
+            mRecyclerView.outOfCustomChoiceMode();
+            mRecyclerView.intoCustomChoiceMode();
+        }
+
+        int count = mAdapter.getItemCount();
+        for (int i = 0; i < count; i++) {
+            GalleryInfo info = mHelper.getDataAtEx(i);
+            if (info != null && !mDownloadManager.containDownloadInfo(info.gid)) {
+                mRecyclerView.toggleItemChecked(i);
+            }
+        }
+        updateSelectionFabIcons();
+    }
+
+    private void showBatchActionsDialog() {
+        Context context = getEHContext();
+        MainActivity activity = getActivity2();
+        if (context == null || activity == null || mRecyclerView == null) {
+            return;
+        }
+
+        collectCheckedGalleryInfos();
+        if (mModifyGiList.isEmpty()) {
+            showTip(R.string.batch_selection_empty, LENGTH_SHORT);
+            return;
+        }
+
+        String[] items = new String[]{getString(R.string.download), getString(R.string.add_to_favourites)};
+        new AlertDialog.Builder(context)
+                .setTitle(getString(R.string.batch_selection_actions_title, mModifyGiList.size()))
+                .setItems(items, (dialog, which) -> {
+                    if (which == 0) {
+                        CommonOperations.startDownload(activity, new ArrayList<>(mModifyGiList), false);
+                        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+                            mRecyclerView.outOfCustomChoiceMode();
+                        }
+                    } else if (which == 1) {
+                        batchAddToFavorites(new ArrayList<>(mModifyGiList));
+                    }
+                })
+                .show();
+    }
+
+    private void batchAddToFavorites(List<GalleryInfo> galleryInfos) {
+        Context context = getEHContext();
+        if (context == null || galleryInfos == null || galleryInfos.isEmpty()) {
+            return;
+        }
+
+        int slot = Settings.getDefaultFavSlot();
+        if (slot >= -1 && slot <= 9) {
+            applyBatchFavorite(galleryInfos, slot);
+            return;
+        }
+
+        String[] items = new String[11];
+        items[0] = getString(R.string.local_favorites);
+        String[] favCat = Settings.getFavCat();
+        System.arraycopy(favCat, 0, items, 1, 10);
+        new AlertDialog.Builder(context)
+                .setTitle(R.string.add_favorites_dialog_title)
+                .setItems(items, (dialog, which) -> applyBatchFavorite(galleryInfos, which - 1))
+                .show();
+    }
+
+    private void applyBatchFavorite(List<GalleryInfo> galleryInfos, int slot) {
+        Context context = getEHContext();
+        if (context == null || galleryInfos == null || galleryInfos.isEmpty()) {
+            return;
+        }
+
+        EhClient client = EhApplication.getEhClient(context);
+        for (GalleryInfo info : galleryInfos) {
+            if (info == null) {
+                continue;
+            }
+            if (slot == -1) {
+                EhDB.putLocalFavorite(info);
+                info.favoriteSlot = -1;
+                info.favoriteName = null;
+                EhApplication.getFavouriteStatusRouter().modifyFavourites(info.gid, -1);
+            } else if (slot >= 0 && slot <= 9) {
+                EhRequest request = new EhRequest();
+                request.setMethod(EhClient.METHOD_ADD_FAVORITES);
+                request.setArgs(info.gid, info.token, slot, "");
+                request.setCallback(new EhClient.Callback<Void>() {
+                    @Override
+                    public void onSuccess(Void result) {
+                        info.favoriteSlot = slot;
+                        info.favoriteName = Settings.getFavCat()[slot];
+                        EhApplication.getFavouriteStatusRouter().modifyFavourites(info.gid, slot);
+                    }
+
+                    @Override
+                    public void onFailure(Exception e) {
+                    }
+
+                    @Override
+                    public void onCancel() {
+                    }
+                });
+                client.execute(request);
+            }
+        }
+
+        showTip(R.string.add_to_favorite_success, LENGTH_SHORT);
+        if (mAdapter != null) {
+            mAdapter.notifyDataSetChanged();
+        }
+        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+            mRecyclerView.outOfCustomChoiceMode();
+        }
+    }
+
+    private void updateSelectionFabIcons() {
+        if (mFabLayout == null || mRecyclerView == null) {
+            return;
+        }
+
+        FloatingActionButton selectFab = (FloatingActionButton) mFabLayout.get(0);
+        selectFab.setImageResource(checkedAll() ? R.drawable.v_check_all_dark_x24 : R.drawable.v_check_dark_x24);
+    }
 
     @Override
     public void onClick(View v) {
@@ -1342,6 +1524,10 @@ public final class GalleryListScene extends BaseScene
 
     @Override
     public void onClickPrimaryFab(FabLayout view, FloatingActionButton fab) {
+        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+            mRecyclerView.outOfCustomChoiceMode();
+            return;
+        }
         if (STATE_NORMAL == mState) {
             view.toggle();
         }
@@ -1427,6 +1613,26 @@ public final class GalleryListScene extends BaseScene
     @Override
     public void onClickSecondaryFab(FabLayout view, FloatingActionButton fab, int position) {
         if (null == mHelper) {
+            return;
+        }
+
+        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+            switch (position) {
+                case 0:
+                    selectAllOrClear(view, fab);
+                    break;
+                case 1:
+                    invertSelection();
+                    break;
+                case 2:
+                    selectUndownloadedOnly();
+                    break;
+                case 3:
+                    showBatchActionsDialog();
+                    break;
+                default:
+                    break;
+            }
             return;
         }
 
@@ -1703,6 +1909,9 @@ public final class GalleryListScene extends BaseScene
 
     @Override
     public void onClickTitle() {
+        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+            return;
+        }
         if (mState == STATE_NORMAL) {
             setState(STATE_SIMPLE_SEARCH);
         }
@@ -1711,6 +1920,9 @@ public final class GalleryListScene extends BaseScene
     @SuppressLint("RtlHardcoded")
     @Override
     public void onClickLeftIcon() {
+        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+            return;
+        }
         if (null == mSearchBar) {
             return;
         }
@@ -1724,6 +1936,9 @@ public final class GalleryListScene extends BaseScene
 
     @Override
     public void onClickRightIcon() {
+        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+            return;
+        }
         if (null == mSearchBar) {
             return;
         }
@@ -1738,6 +1953,9 @@ public final class GalleryListScene extends BaseScene
 
     @Override
     public void onSearchEditTextClick() {
+        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+            return;
+        }
         if (mState == STATE_SEARCH) {
             setState(STATE_SEARCH_SHOW_LIST);
         }
@@ -1745,6 +1963,9 @@ public final class GalleryListScene extends BaseScene
 
     @Override
     public void onApplySearch(String query) {
+        if (mRecyclerView != null && mRecyclerView.isInCustomChoice()) {
+            return;
+        }
         if (null == mUrlBuilder || null == mHelper || null == mSearchLayout) {
             return;
         }
@@ -1774,6 +1995,96 @@ public final class GalleryListScene extends BaseScene
         onUpdateUrlBuilder();
         mHelper.refresh();
         setState(STATE_NORMAL);
+    }
+
+    @Override
+    public void onIntoCustomChoice(EasyRecyclerView view) {
+        if (mFabLayout != null) {
+            ((FloatingActionButton) mFabLayout.getPrimaryFab()).setImageResource(R.drawable.v_close_dark_x24);
+            FloatingActionButton fab0 = (FloatingActionButton) mFabLayout.get(0);
+            FloatingActionButton fab1 = (FloatingActionButton) mFabLayout.get(1);
+            FloatingActionButton fab2 = (FloatingActionButton) mFabLayout.get(2);
+            FloatingActionButton fab3 = (FloatingActionButton) mFabLayout.get(3);
+            fab0.setImageResource(R.drawable.v_check_dark_x24);
+            fab1.setImageResource(R.drawable.v_refresh_dark_x24);
+            fab1.setRotation(180f);
+            fab2.setImageResource(R.drawable.v_download_dark_x24);
+            fab2.setRotation(0f);
+            fab3.setImageResource(R.drawable.v_download_box_dark_x24);
+            fab3.setRotation(0f);
+            mFabLayout.setAutoCancel(false);
+            mFabLayout.setExpanded(true);
+        }
+        if (mHelper != null) {
+            mHelper.setRefreshLayoutEnable(false);
+        }
+        setDrawerLockMode(DrawerLayout.LOCK_MODE_LOCKED_CLOSED, Gravity.LEFT);
+        setDrawerLockMode(DrawerLayout.LOCK_MODE_LOCKED_CLOSED, Gravity.RIGHT);
+        rebuildCheckedGidSet();
+        updateSelectionFabIcons();
+        if (mAdapter != null) {
+            mAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void onOutOfCustomChoice(EasyRecyclerView view) {
+        if (mFabLayout != null) {
+            mFabLayout.setAutoCancel(true);
+            mFabLayout.setExpanded(false);
+            mFabLayout.getPrimaryFab().setImageDrawable(mActionFabDrawable);
+            FloatingActionButton fab1 = (FloatingActionButton) mFabLayout.get(1);
+            FloatingActionButton fab2 = (FloatingActionButton) mFabLayout.get(2);
+            fab1.setRotation(0f);
+            fab2.setRotation(0f);
+        }
+        if (mHelper != null) {
+            mHelper.setRefreshLayoutEnable(true);
+        }
+        setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED, Gravity.LEFT);
+        setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED, Gravity.RIGHT);
+        mCheckedGalleryGidSet.clear();
+        if (mAdapter != null) {
+            mAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void onItemCheckedStateChanged(EasyRecyclerView view, int position, long id, boolean checked) {
+        GalleryInfo info = mHelper != null ? mHelper.getDataAtEx(position) : null;
+        if (info != null) {
+            if (checked) {
+                mCheckedGalleryGidSet.add(info.gid);
+            } else {
+                mCheckedGalleryGidSet.remove(info.gid);
+            }
+        }
+
+        if (view.getCheckedItemCount() == 0) {
+            view.outOfCustomChoiceMode();
+        } else {
+            updateSelectionFabIcons();
+            if (mAdapter != null) {
+                mAdapter.notifyItemChanged(position);
+            }
+        }
+    }
+
+    private void rebuildCheckedGidSet() {
+        mCheckedGalleryGidSet.clear();
+        if (mRecyclerView == null || mHelper == null) {
+            return;
+        }
+        SparseBooleanArray stateArray = mRecyclerView.getCheckedItemPositions();
+        int n = stateArray.size();
+        for (int i = 0; i < n; i++) {
+            if (stateArray.valueAt(i)) {
+                GalleryInfo info = mHelper.getDataAtEx(stateArray.keyAt(i));
+                if (info != null) {
+                    mCheckedGalleryGidSet.add(info.gid);
+                }
+            }
+        }
     }
 
     @Override
@@ -2022,6 +2333,18 @@ public final class GalleryListScene extends BaseScene
         @Override
         public GalleryInfo getDataAt(int position) {
             return null != mHelper ? mHelper.getDataAtEx(position) : null;
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull GalleryHolder holder, int position) {
+            super.onBindViewHolder(holder, position);
+            GalleryInfo gi = getDataAt(position);
+            boolean checked = gi != null && mCheckedGalleryGidSet.contains(gi.gid);
+            View selectionMark = holder.itemView.findViewById(R.id.selection_mark);
+            if (selectionMark != null) {
+                selectionMark.setVisibility(checked ? View.VISIBLE : View.GONE);
+            }
+            holder.itemView.setAlpha(checked ? 0.82f : 1.0f);
         }
 
     }

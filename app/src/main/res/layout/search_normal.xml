@@ -27,6 +27,28 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="@dimen/search_item_interval"/>
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="@dimen/search_item_interval"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="12dp"
+            android:text="@string/language"
+            android:textColor="?android:attr/textColorPrimary"/>
+
+        <Spinner
+            android:id="@+id/search_language_spinner"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:entries="@array/search_language_entries"/>
+    </LinearLayout>
+
     <com.hippo.widget.RadioGridGroup
         android:id="@+id/normal_search_mode"
         android:layout_width="wrap_content"
