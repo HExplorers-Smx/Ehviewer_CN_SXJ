@@ -78,8 +78,6 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -111,6 +109,9 @@ public final class SpiderQueen implements Runnable {
     private static final AtomicInteger sIdGenerator = new AtomicInteger();
     private static final boolean DEBUG_LOG = false;
     private static final boolean DEBUG_PTOKEN = true;
+    private static final int IMAGE_DOWNLOAD_MAX_RETRY = 5;
+    private static final long RETRY_BACKOFF_BASE_MS = 1200L;
+    private static final int DEFAULT_IDLE_READ_TIMEOUT_SECONDS = 30;
     private static final String[] URL_509_SUFFIX_ARRAY = {
             "/509.gif",
             "/509s.gif"
@@ -165,8 +166,6 @@ public final class SpiderQueen implements Runnable {
     private final AtomicReference<String> showKey = new AtomicReference<>();
 
     private final int downloadTimeout;
-
-    private long receiveBytesBefore;
 
     private SpiderQueen(EhApplication application, @NonNull GalleryInfo galleryInfo) {
         mHttpClient = EhApplication.getOkHttpClient(application);
@@ -1131,10 +1130,6 @@ public final class SpiderQueen implements Runnable {
     }
 
     private class SpiderWorker implements Runnable {
-        private Timer downloadSpeedZeroTimeCount;
-
-        private boolean cancelDownload = false;
-
         private final long mGid;
 
         public SpiderWorker() {
@@ -1195,7 +1190,7 @@ public final class SpiderQueen implements Runnable {
             boolean interrupt = false;
             boolean leakSkipHathKey = false;
 
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < IMAGE_DOWNLOAD_MAX_RETRY; i++) {
                 String imageUrl = null;
                 String localShowKey;
 
@@ -1333,9 +1328,10 @@ public final class SpiderQueen implements Runnable {
                         Log.d(TAG, "Start download image " + index);
                     }
 
-                    // disable Call Timeout for image-downloading requests
-                    Call call = mHttpClient.newBuilder()
-                            .callTimeout(downloadTimeout, TimeUnit.SECONDS).build()
+                    // Use a more tolerant per-call client for long-running image downloads.
+                    // OkHttp already provides read/call timeout handling, so avoid custom 3-second
+                    // stall detection which can falsely abort healthy slow downloads.
+                    Call call = buildImageDownloadClient()
                             .newCall(new EhRequestBuilder(targetImageUrl, referer).build());
                     Response response = call.execute();
                     ResponseBody responseBody = response.body();
@@ -1351,6 +1347,9 @@ public final class SpiderQueen implements Runnable {
                         error = "链接疑似被劫持\nThe link is suspected to be hijacked";
                         response.close();
                         forceHtml = true;
+                        if (!sleepBeforeRetry(index, i, error)) {
+                            break;
+                        }
                         continue;
                     }
 
@@ -1359,12 +1358,18 @@ public final class SpiderQueen implements Runnable {
                         response.close();
                         error = "Bad code: " + response.code();
                         forceHtml = true;
+                        if (!sleepBeforeRetry(index, i, error)) {
+                            break;
+                        }
                         continue;
                     }
 
                     if (responseBody == null) {
                         error = "Empty response body";
                         forceHtml = true;
+                        if (!sleepBeforeRetry(index, i, error)) {
+                            break;
+                        }
                         continue;
                     }
 
@@ -1413,25 +1418,6 @@ public final class SpiderQueen implements Runnable {
                             if (contentLength > 0) {
                                 mPagePercentMap.put(index, (float) receivedSize / contentLength);
                             }
-                            if (receivedSize == receiveBytesBefore) {
-                                if (downloadSpeedZeroTimeCount == null) {
-                                    try {
-                                        downloadSpeedZeroTimeCount = new Timer();
-                                        cancelDownload = false;
-                                        downloadSpeedZeroTimeCount.schedule(new TimeCount(), 3000);
-                                    } catch (Throwable e) {
-                                        Analytics.recordException(e);
-                                    }
-                                }
-                                if (cancelDownload) {
-                                    cancelTimeCount();
-                                    response.close();
-                                    break;
-                                }
-                            } else {
-                                cancelTimeCount();
-                                receiveBytesBefore = receivedSize;
-                            }
                             // Notify listener
                             notifyPageDownload(index, contentLength, receivedSize, bytesRead);
                         }
@@ -1443,6 +1429,9 @@ public final class SpiderQueen implements Runnable {
                                 Log.e(TAG, "Can't download all of image data");
                                 error = "Incomplete";
                                 forceHtml = true;
+                                if (!sleepBeforeRetry(index, i, error)) {
+                                    break;
+                                }
                                 continue;
                             } else if (receivedSize > contentLength) {
                                 Log.w(TAG, "Received data is more than contentLength");
@@ -1514,6 +1503,9 @@ public final class SpiderQueen implements Runnable {
                     e.printStackTrace();
                     error = GetText.getString(R.string.error_socket);
                     forceHtml = true;
+                    if (!sleepBeforeRetry(index, i, error)) {
+                        break;
+                    }
                 } finally {
                     IOUtils.closeQuietly(is);
 
@@ -1528,6 +1520,40 @@ public final class SpiderQueen implements Runnable {
 
             updatePageState(index, STATE_FAILED, error);
             return !interrupt;
+        }
+
+        private OkHttpClient buildImageDownloadClient() {
+            OkHttpClient.Builder builder = mHttpClient.newBuilder()
+                    .retryOnConnectionFailure(true);
+
+            int idleReadTimeoutSeconds = downloadTimeout > 0
+                    ? Math.max(10, downloadTimeout)
+                    : DEFAULT_IDLE_READ_TIMEOUT_SECONDS;
+            builder.readTimeout(idleReadTimeoutSeconds, TimeUnit.SECONDS);
+
+            if (downloadTimeout > 0) {
+                builder.callTimeout(downloadTimeout, TimeUnit.SECONDS);
+            } else {
+                builder.callTimeout(0, TimeUnit.SECONDS);
+            }
+
+            return builder.build();
+        }
+
+        private boolean sleepBeforeRetry(int index, int attempt, String reason) {
+            if (attempt >= IMAGE_DOWNLOAD_MAX_RETRY - 1 || Thread.currentThread().isInterrupted()) {
+                return false;
+            }
+
+            long delay = Math.min(RETRY_BACKOFF_BASE_MS * (attempt + 1L), 4000L);
+            Log.w(TAG, "Retry download page " + index + " after " + reason + ", attempt " + (attempt + 1) + '/' + IMAGE_DOWNLOAD_MAX_RETRY + ", delay=" + delay + "ms");
+            try {
+                Thread.sleep(delay);
+                return true;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
         }
 
         // false for stop
@@ -1675,13 +1701,6 @@ public final class SpiderQueen implements Runnable {
             return downloadImage(mGid, index, pToken, previousPToken, force);
         }
 
-        private void cancelTimeCount() {
-            if (downloadSpeedZeroTimeCount != null) {
-                downloadSpeedZeroTimeCount.cancel();
-                downloadSpeedZeroTimeCount = null;
-            }
-            cancelDownload = false;
-        }
 
         @Override
         @SuppressWarnings("StatementWithEmptyBody")
@@ -1707,23 +1726,11 @@ public final class SpiderQueen implements Runnable {
             if (finish) {
                 notifyFinish();
             }
-            cancelTimeCount();
             if (DEBUG_LOG) {
                 Log.i(TAG, Thread.currentThread().getName() + ": end");
             }
         }
 
-        private class TimeCount extends TimerTask {
-            public TimeCount() {
-
-            }
-
-            @Override
-            public void run() {
-                cancelDownload = true;
-            }
-
-        }
     }
 
     private class SpiderDecoder implements Runnable {
