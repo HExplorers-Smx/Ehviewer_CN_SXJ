@@ -1,0 +1,98 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - '**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  JAVA_VERSION: '21'
+  ANDROID_API_LEVEL: '35'
+  ANDROID_BUILD_TOOLS: '35.0.0'
+  ANDROID_NDK: '26.1.10909125'
+  ANDROID_CMAKE: '3.22.1'
+  APK_OUTPUT_GLOB: 'app/build/outputs/apk/appRelease/release/*.apk'
+  RELEASE_NAME: 'Ehviewer_CN_SXJ-BiLi_PC_Gamer'
+
+jobs:
+  release:
+    name: Build and publish release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}" "cmake;${ANDROID_CMAKE}" "ndk;${ANDROID_NDK}"
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Build signed release APK
+        run: ./gradlew --no-daemon --stacktrace app:assembleAppReleaseRelease
+
+      - name: Prepare release assets
+        id: assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p release-assets
+          apks=( ${APK_OUTPUT_GLOB} )
+          if [ ${#apks[@]} -eq 0 ]; then
+            echo "No APK found matching ${APK_OUTPUT_GLOB}" >&2
+            exit 1
+          fi
+
+          tag_name="${GITHUB_REF_NAME:-manual}"
+          apk_src="${apks[0]}"
+          apk_name="${RELEASE_NAME}-${tag_name}.apk"
+          cp "$apk_src" "release-assets/$apk_name"
+
+          sha256sum "release-assets/$apk_name" > "release-assets/$apk_name.sha256"
+
+          echo "apk_path=release-assets/$apk_name" >> "$GITHUB_OUTPUT"
+          echo "sha256_path=release-assets/$apk_name.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-${{ github.ref_name || github.run_number }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.assets.outputs.apk_path }}
+            ${{ steps.assets.outputs.sha256_path }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false

@@ -1,4 +1,4 @@
-name: Build
+name: Android CI
 
 on:
   push:
@@ -7,27 +7,68 @@ on:
     branches: [ BiLi_PC_Gamer ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '21'
+  ANDROID_API_LEVEL: '35'
+  ANDROID_BUILD_TOOLS: '35.0.0'
+  ANDROID_NDK: '26.1.10909125'
+  ANDROID_CMAKE: '3.22.1'
+
 jobs:
   build:
+    name: ${{ matrix.label }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Debug APK
+            gradle_task: app:assembleAppReleaseDebug
+            artifact_name: appRelease-debug-apk
+            artifact_path: app/build/outputs/apk/appRelease/debug/*.apk
+          - label: Release APK
+            gradle_task: app:assembleAppReleaseRelease
+            artifact_name: appRelease-release-apk
+            artifact_path: app/build/outputs/apk/appRelease/release/*.apk
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup JDK
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: 21
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Build
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
         run: |
-          chmod +x ./gradlew
-          ./gradlew app:assembleDebug
-          
-      - name: Upload Artifact
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}" "cmake;${ANDROID_CMAKE}" "ndk;${ANDROID_NDK}"
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Build ${{ matrix.label }}
+        run: ./gradlew --no-daemon --stacktrace ${{ matrix.gradle_task }}
+
+      - name: Upload ${{ matrix.label }}
         uses: actions/upload-artifact@v4
         with:
-          name: Build
-          path: ./app/build/outputs/apk/
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14

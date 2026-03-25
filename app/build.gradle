@@ -12,8 +12,10 @@ android {
     namespace 'com.hippo.ehviewer'
     testNamespace 'com.hippo.ehviewer.debug'
     compileSdk 35
+    ndkVersion '26.1.10909125'
 //    buildToolsVersion "30.0.3"
-//    ndkVersion '26.1.10909125'
+
+    def releaseKeystore = rootProject.file('test.key')
 
     flavorDimensions "distribute"
     productFlavors {
@@ -54,8 +56,22 @@ android {
         checkReleaseBuilds true
     }
 
+    signingConfigs {
+        if (releaseKeystore.exists()) {
+            release {
+                storeFile releaseKeystore
+                storePassword '123456'
+                keyAlias '1234'
+                keyPassword '123456'
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (releaseKeystore.exists()) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             buildConfigField 'String', 'FILE_PROVIDER_AUTHORITY', '"com.hippo.ehviewer.fileprovider"'
