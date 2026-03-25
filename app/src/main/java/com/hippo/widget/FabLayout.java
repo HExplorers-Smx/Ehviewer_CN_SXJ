@@ -98,6 +98,13 @@ public class FabLayout extends ViewGroup implements View.OnClickListener {
         return Math.max(0, getChildCount() - 1);
     }
 
+    public View get(int index) {
+        if (index < 0 || index >= getChildCount()) {
+            return null;
+        }
+        return getChildAt(index);
+    }
+
     public FloatingActionButton getSecondaryFabAt(int index) {
         if (index < 0 || index >= getSecondaryFabCount()) {
             return null;
