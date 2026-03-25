@@ -54,6 +54,11 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Linux native build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm ninja-build
+
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
@@ -63,7 +68,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build ${{ matrix.label }}
-        run: ./gradlew --no-daemon --stacktrace ${{ matrix.gradle_task }}
+        run: ./gradlew --no-daemon --stacktrace --info ${{ matrix.gradle_task }}
 
       - name: Upload ${{ matrix.label }}
         uses: actions/upload-artifact@v4

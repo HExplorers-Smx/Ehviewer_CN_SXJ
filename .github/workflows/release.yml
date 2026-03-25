@@ -43,6 +43,11 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Linux native build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm ninja-build
+
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
@@ -52,7 +57,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build signed release APK
-        run: ./gradlew --no-daemon --stacktrace app:assembleAppReleaseRelease
+        run: ./gradlew --no-daemon --stacktrace --info app:assembleAppReleaseRelease
 
       - name: Prepare release assets
         id: assets
