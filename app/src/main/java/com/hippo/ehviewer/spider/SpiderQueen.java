@@ -195,6 +195,33 @@ public final class SpiderQueen implements Runnable {
         mImageDownloadClient = buildImageDownloadClient();
     }
 
+    private OkHttpClient buildImageDownloadClient() {
+        Dispatcher dispatcher = new Dispatcher();
+        int maxRequests = Math.max(16, mWorkerMaxCount * 4);
+        int maxRequestsPerHost = Math.max(8, mWorkerMaxCount * 2);
+        dispatcher.setMaxRequests(maxRequests);
+        dispatcher.setMaxRequestsPerHost(maxRequestsPerHost);
+
+        OkHttpClient.Builder builder = mHttpImageClient.newBuilder()
+                .dispatcher(dispatcher)
+                .connectionPool(new ConnectionPool(maxRequestsPerHost, 5, TimeUnit.MINUTES))
+                .retryOnConnectionFailure(true)
+                .cache(null);
+
+        int idleReadTimeoutSeconds = downloadTimeout > 0
+                ? Math.max(10, downloadTimeout)
+                : DEFAULT_IDLE_READ_TIMEOUT_SECONDS;
+        builder.readTimeout(idleReadTimeoutSeconds, TimeUnit.SECONDS);
+
+        if (downloadTimeout > 0) {
+            builder.callTimeout(downloadTimeout, TimeUnit.SECONDS);
+        } else {
+            builder.callTimeout(0, TimeUnit.SECONDS);
+        }
+
+        return builder.build();
+    }
+
     @UiThread
     public static SpiderQueen obtainSpiderQueen(@NonNull Context context,
                                                 @NonNull GalleryInfo galleryInfo, @Mode int mode) {
@@ -1530,32 +1557,6 @@ public final class SpiderQueen implements Runnable {
             return !interrupt;
         }
 
-        private OkHttpClient buildImageDownloadClient() {
-            Dispatcher dispatcher = new Dispatcher();
-            int maxRequests = Math.max(16, mWorkerMaxCount * 4);
-            int maxRequestsPerHost = Math.max(8, mWorkerMaxCount * 2);
-            dispatcher.setMaxRequests(maxRequests);
-            dispatcher.setMaxRequestsPerHost(maxRequestsPerHost);
-
-            OkHttpClient.Builder builder = mHttpImageClient.newBuilder()
-                    .dispatcher(dispatcher)
-                    .connectionPool(new ConnectionPool(maxRequestsPerHost, 5, TimeUnit.MINUTES))
-                    .retryOnConnectionFailure(true)
-                    .cache(null);
-
-            int idleReadTimeoutSeconds = downloadTimeout > 0
-                    ? Math.max(10, downloadTimeout)
-                    : DEFAULT_IDLE_READ_TIMEOUT_SECONDS;
-            builder.readTimeout(idleReadTimeoutSeconds, TimeUnit.SECONDS);
-
-            if (downloadTimeout > 0) {
-                builder.callTimeout(downloadTimeout, TimeUnit.SECONDS);
-            } else {
-                builder.callTimeout(0, TimeUnit.SECONDS);
-            }
-
-            return builder.build();
-        }
 
         private boolean sleepBeforeRetry(int index, int attempt, String reason) {
             if (attempt >= IMAGE_DOWNLOAD_MAX_RETRY - 1 || Thread.currentThread().isInterrupted()) {
