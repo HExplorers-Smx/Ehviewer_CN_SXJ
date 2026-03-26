@@ -768,7 +768,7 @@ public class Settings {
     }
 
     private static final String KEY_MULTI_THREAD_DOWNLOAD = "download_thread";
-    private static final int DEFAULT_MULTI_THREAD_DOWNLOAD = 3;
+    private static final int DEFAULT_MULTI_THREAD_DOWNLOAD = 5;
 
     public static int getMultiThreadDownload() {
         return getIntFromStr(KEY_MULTI_THREAD_DOWNLOAD, DEFAULT_MULTI_THREAD_DOWNLOAD);

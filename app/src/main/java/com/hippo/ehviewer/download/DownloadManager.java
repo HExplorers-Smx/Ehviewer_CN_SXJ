@@ -96,6 +96,12 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
 
     private final ConcurrentPool<NotifyTask> mNotifyTaskPool = new ConcurrentPool<>(5);
 
+    private final Handler mAutoRetryHandler = new Handler(Looper.getMainLooper());
+    private final Map<Long, Runnable> mAutoRetryTaskMap = new HashMap<>();
+    private final Map<Long, Integer> mAutoRetryCountMap = new HashMap<>();
+    private static final long AUTO_RETRY_DELAY_BASE = 1500L;
+    private static final long AUTO_RETRY_DELAY_MAX = 10000L;
+
     public DownloadManager(Context context) {
         mContext = context;
 
@@ -349,6 +355,7 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
     }
 
     void startDownload(GalleryInfo galleryInfo, @Nullable String label) {
+        clearAutoRetry(galleryInfo.gid);
         if (mCurrentTask != null && mCurrentTask.gid == galleryInfo.gid) {
             // It is current task
             return;
@@ -420,6 +427,9 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
     }
 
     void startRangeDownload(LongList gidList) {
+        for (int i = 0, n = gidList.size(); i < n; i++) {
+            clearAutoRetry(gidList.get(i));
+        }
         boolean update = false;
         boolean downloadOrder = Settings.getDownloadOrder();
         if (downloadOrder) {
@@ -478,6 +488,7 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
     }
 
     void startAllDownload() {
+        clearAllAutoRetries();
         boolean update = false;
         // Start all STATE_NONE and STATE_FAILED item
         LinkedList<DownloadInfo> allInfoList = mAllInfoList;
@@ -691,6 +702,7 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
     }
 
     public void stopAllDownload() {
+        clearAllAutoRetries();
         // Stop all in wait list
         for (DownloadInfo info : mWaitList) {
             info.state = DownloadInfo.STATE_NONE;
@@ -709,6 +721,7 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
     }
 
     public void deleteDownload(long gid) {
+        clearAutoRetry(gid);
         stopDownloadInternal(gid);
         DownloadInfo info = mAllInfoMap.get(gid);
         if (info != null) {
@@ -738,6 +751,9 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
     }
 
     public void deleteRangeDownload(LongList gidList) {
+        for (int i = 0, n = gidList.size(); i < n; i++) {
+            clearAutoRetry(gidList.get(i));
+        }
         stopRangeDownloadInternal(gidList);
 
         for (int i = 0, n = gidList.size(); i < n; i++) {
@@ -817,7 +833,52 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
     // Update in DB
     // Update listener
     // No ensureDownload
+    private void clearAutoRetry(long gid) {
+        Runnable pending = mAutoRetryTaskMap.remove(gid);
+        if (pending != null) {
+            mAutoRetryHandler.removeCallbacks(pending);
+        }
+        mAutoRetryCountMap.remove(gid);
+    }
+
+    private void clearAllAutoRetries() {
+        for (Runnable pending : mAutoRetryTaskMap.values()) {
+            mAutoRetryHandler.removeCallbacks(pending);
+        }
+        mAutoRetryTaskMap.clear();
+        mAutoRetryCountMap.clear();
+    }
+
+    private void scheduleAutoRetry(@NonNull DownloadInfo info) {
+        clearAutoRetry(info.gid);
+
+        int retryCount = mAutoRetryCountMap.containsKey(info.gid) ? mAutoRetryCountMap.get(info.gid) + 1 : 1;
+        mAutoRetryCountMap.put(info.gid, retryCount);
+        long delay = Math.min(AUTO_RETRY_DELAY_BASE * retryCount, AUTO_RETRY_DELAY_MAX);
+        long gid = info.gid;
+
+        Runnable task = () -> {
+            mAutoRetryTaskMap.remove(gid);
+            DownloadInfo retryInfo = mAllInfoMap.get(gid);
+            if (retryInfo == null || retryInfo.state != DownloadInfo.STATE_WAIT) {
+                return;
+            }
+            if (!mWaitList.contains(retryInfo)) {
+                if (Settings.getDownloadOrder()) {
+                    mWaitList.add(retryInfo);
+                } else {
+                    mWaitList.addFirst(retryInfo);
+                }
+            }
+            ensureDownload();
+        };
+
+        mAutoRetryTaskMap.put(gid, task);
+        mAutoRetryHandler.postDelayed(task, delay);
+    }
+
     private DownloadInfo stopDownloadInternal(long gid) {
+        clearAutoRetry(gid);
         // Check current task
         if (mCurrentTask != null && mCurrentTask.gid == gid) {
             // Stop current
@@ -843,6 +904,9 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
     // Update mDownloadListener
     private DownloadInfo stopCurrentDownloadInternal() {
         DownloadInfo info = mCurrentTask;
+        if (info != null) {
+            clearAutoRetry(info.gid);
+        }
         SpiderQueen spider = mCurrentSpider;
         // Release spider
         if (spider != null) {
@@ -1273,14 +1337,16 @@ public class DownloadManager implements SpiderQueen.OnSpiderListener {
                     info.total = mTotal;
                     info.legacy = mTotal - mFinished;
                     if (info.legacy == 0) {
+                        clearAutoRetry(info.gid);
                         info.state = DownloadInfo.STATE_FINISH;
                     } else {
-                        info.state = DownloadInfo.STATE_FAILED;
+                        info.state = DownloadInfo.STATE_WAIT;
+                        scheduleAutoRetry(info);
                     }
                     // Update in DB
                     EhDB.putDownloadInfo(info);
-                    // Notify
-                    if (mDownloadListener != null) {
+                    // Notify only when this gallery is really done.
+                    if (mDownloadListener != null && info.state == DownloadInfo.STATE_FINISH) {
                         mDownloadListener.onFinish(info);
                     }
                     List<DownloadInfo> list = getInfoListForLabel(info.label);

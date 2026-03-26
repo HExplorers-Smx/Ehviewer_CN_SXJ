@@ -176,6 +176,8 @@
         <item>3</item>
         <item>5</item>
         <item>7</item>
+        <item>9</item>
+        <item>11</item>
     </string-array>
 
     <string-array name="multi_thread_download_entry_values" translatable="false">
@@ -183,6 +185,8 @@
         <item>3</item>
         <item>5</item>
         <item>7</item>
+        <item>9</item>
+        <item>11</item>
     </string-array>
 
     <string-array name="preload_image_entries" translatable="false">

@@ -88,6 +88,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.ConnectionPool;
+import okhttp3.Dispatcher;
+
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
@@ -458,6 +461,9 @@ public class EhApplication extends RecordingApplication {
     public static OkHttpClient getImageOkHttpClient(@NonNull Context context) {
         EhApplication application = ((EhApplication) context.getApplicationContext());
         if (application.mImageOkHttpClient == null) {
+            Dispatcher dispatcher = new Dispatcher();
+            dispatcher.setMaxRequests(32);
+            dispatcher.setMaxRequestsPerHost(12);
             OkHttpClient.Builder builder = new OkHttpClient.Builder()
                     .followRedirects(false)
                     .followSslRedirects(false)
@@ -465,6 +471,9 @@ public class EhApplication extends RecordingApplication {
                     .readTimeout(20, TimeUnit.SECONDS)
                     .writeTimeout(20, TimeUnit.SECONDS)
                     .callTimeout(20, TimeUnit.SECONDS)
+                    .dispatcher(dispatcher)
+                    .connectionPool(new ConnectionPool(12, 5, TimeUnit.MINUTES))
+                    .retryOnConnectionFailure(true)
                     .cookieJar(getEhCookieStore(application))
                     .cache(getOkHttpCache(application))
 //                    .hostnameVerifier((hostname, session) -> true)

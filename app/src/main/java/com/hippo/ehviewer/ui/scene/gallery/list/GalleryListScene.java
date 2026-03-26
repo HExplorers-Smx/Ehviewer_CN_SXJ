@@ -1511,7 +1511,7 @@ public final class GalleryListScene extends BaseScene
         }
 
         FloatingActionButton selectFab = (FloatingActionButton) mFabLayout.get(0);
-        selectFab.setImageResource(checkedAll() ? R.drawable.v_check_all_dark_x24 : R.drawable.v_check_dark_x24);
+        selectFab.setImageResource(checkedAll() ? R.drawable.v_clear_all_dark_x24 : R.drawable.v_check_all_dark_x24);
     }
 
     @Override
@@ -2005,12 +2005,12 @@ public final class GalleryListScene extends BaseScene
             FloatingActionButton fab1 = (FloatingActionButton) mFabLayout.get(1);
             FloatingActionButton fab2 = (FloatingActionButton) mFabLayout.get(2);
             FloatingActionButton fab3 = (FloatingActionButton) mFabLayout.get(3);
-            fab0.setImageResource(R.drawable.v_check_dark_x24);
-            fab1.setImageResource(R.drawable.v_refresh_dark_x24);
-            fab1.setRotation(180f);
-            fab2.setImageResource(R.drawable.v_download_dark_x24);
+            fab0.setImageResource(R.drawable.v_check_all_dark_x24);
+            fab1.setImageResource(R.drawable.v_swap_horizontal_dark_x24);
+            fab1.setRotation(0f);
+            fab2.setImageResource(R.drawable.v_download_box_dark_x24);
             fab2.setRotation(0f);
-            fab3.setImageResource(R.drawable.v_download_box_dark_x24);
+            fab3.setImageResource(R.drawable.v_dots_vertical_secondary_dark_x24);
             fab3.setRotation(0f);
             mFabLayout.setAutoCancel(false);
             mFabLayout.setExpanded(true);

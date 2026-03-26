@@ -68,6 +68,7 @@ import com.hippo.lib.yorozuya.thread.PriorityThread;
 import com.hippo.lib.yorozuya.thread.PriorityThreadFactory;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -87,6 +88,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import okhttp3.Call;
+import okhttp3.ConnectionPool;
+import okhttp3.Dispatcher;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -110,6 +113,7 @@ public final class SpiderQueen implements Runnable {
     private static final boolean DEBUG_LOG = false;
     private static final boolean DEBUG_PTOKEN = true;
     private static final int IMAGE_DOWNLOAD_MAX_RETRY = 5;
+    private static final int IMAGE_STREAM_BUFFER_SIZE = 64 * 1024;
     private static final long RETRY_BACKOFF_BASE_MS = 1200L;
     private static final int DEFAULT_IDLE_READ_TIMEOUT_SECONDS = 30;
     private static final String[] URL_509_SUFFIX_ARRAY = {
@@ -123,6 +127,8 @@ public final class SpiderQueen implements Runnable {
     private final OkHttpClient mHttpImageClient;
     @NonNull
     private final SimpleDiskCache mSpiderInfoCache;
+    @NonNull
+    private final OkHttpClient mImageDownloadClient;
     @NonNull
     private final GalleryInfo mGalleryInfo;
     @NonNull
@@ -174,7 +180,7 @@ public final class SpiderQueen implements Runnable {
         mGalleryInfo = galleryInfo;
         mSpiderDen = new SpiderDen(mGalleryInfo);
 
-        mWorkerMaxCount = MathUtils.clamp(Settings.getMultiThreadDownload(), 1, 10);
+        mWorkerMaxCount = MathUtils.clamp(Settings.getMultiThreadDownload(), 1, 12);
         mPreloadNumber = MathUtils.clamp(Settings.getPreloadImage(), 0, 100);
 
         for (int i = 0; i < DECODE_THREAD_NUM; i++) {
@@ -186,6 +192,7 @@ public final class SpiderQueen implements Runnable {
                 new PriorityThreadFactory(SpiderWorker.class.getSimpleName(), Process.THREAD_PRIORITY_BACKGROUND));
         mDownloadDelay = Settings.getDownloadDelay();
         downloadTimeout = Settings.getDownloadTimeout();
+        mImageDownloadClient = buildImageDownloadClient();
     }
 
     @UiThread
@@ -1331,7 +1338,7 @@ public final class SpiderQueen implements Runnable {
                     // Use a more tolerant per-call client for long-running image downloads.
                     // OkHttp already provides read/call timeout handling, so avoid custom 3-second
                     // stall detection which can falsely abort healthy slow downloads.
-                    Call call = buildImageDownloadClient()
+                    Call call = mImageDownloadClient
                             .newCall(new EhRequestBuilder(targetImageUrl, referer).build());
                     Response response = call.execute();
                     ResponseBody responseBody = response.body();
@@ -1399,11 +1406,11 @@ public final class SpiderQueen implements Runnable {
                         }
 
                         long contentLength = responseBody.contentLength();
-                        is = responseBody.byteStream();
+                        is = new BufferedInputStream(responseBody.byteStream(), IMAGE_STREAM_BUFFER_SIZE);
                         osPipe.obtain();
-                        OutputStream os = osPipe.open();
+                        OutputStream os = new BufferedOutputStream(osPipe.open(), IMAGE_STREAM_BUFFER_SIZE);
 
-                        final byte[] data = new byte[1024 * 4];
+                        final byte[] data = new byte[IMAGE_STREAM_BUFFER_SIZE];
                         long receivedSize = 0;
 
                         while (!Thread.currentThread().isInterrupted()) {
@@ -1422,6 +1429,7 @@ public final class SpiderQueen implements Runnable {
                             notifyPageDownload(index, contentLength, receivedSize, bytesRead);
                         }
                         os.flush();
+                        IOUtils.closeQuietly(os);
 
                         // check download size
                         if (contentLength >= 0) {
@@ -1523,8 +1531,17 @@ public final class SpiderQueen implements Runnable {
         }
 
         private OkHttpClient buildImageDownloadClient() {
-            OkHttpClient.Builder builder = mHttpClient.newBuilder()
-                    .retryOnConnectionFailure(true);
+            Dispatcher dispatcher = new Dispatcher();
+            int maxRequests = Math.max(16, mWorkerMaxCount * 4);
+            int maxRequestsPerHost = Math.max(8, mWorkerMaxCount * 2);
+            dispatcher.setMaxRequests(maxRequests);
+            dispatcher.setMaxRequestsPerHost(maxRequestsPerHost);
+
+            OkHttpClient.Builder builder = mHttpImageClient.newBuilder()
+                    .dispatcher(dispatcher)
+                    .connectionPool(new ConnectionPool(maxRequestsPerHost, 5, TimeUnit.MINUTES))
+                    .retryOnConnectionFailure(true)
+                    .cache(null);
 
             int idleReadTimeoutSeconds = downloadTimeout > 0
                     ? Math.max(10, downloadTimeout)
