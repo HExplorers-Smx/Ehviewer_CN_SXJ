@@ -53,6 +53,7 @@ import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
+import androidx.cardview.widget.CardView;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager.widget.ViewPager;
 
@@ -167,6 +168,9 @@ public final class GalleryListScene extends BaseScene
     public final static String KEY_LIST_URL_BUILDER = "list_url_builder";
     public final static String KEY_HAS_FIRST_REFRESH = "has_first_refresh";
     public final static String KEY_STATE = "state";
+    public final static String KEY_FILTER_OPEN = "filter_open";
+    public final static String KEY_FILTER_TAG_LIST = "filter_tag_list";
+    public final static String KEY_FILTER_BASE_URL_BUILDER = "filter_base_url_builder";
 
     final static int STATE_NORMAL = 0;
     final static int STATE_SIMPLE_SEARCH = 1;
@@ -178,6 +182,8 @@ public final class GalleryListScene extends BaseScene
     private boolean showReadProgress = false;
     private boolean filterOpen = false;
     private final List<String> filterTagList = new ArrayList<>();
+    @Nullable
+    private ListUrlBuilder mFilterBaseUrlBuilder;
 
     /*---------------
      Whole life cycle
@@ -193,6 +199,12 @@ public final class GalleryListScene extends BaseScene
     @Nullable
     private EasyRecyclerView mRecyclerView;
     @Nullable
+    private ContentLayout mContentLayout;
+    @Nullable
+    private FastScroller mFastScroller;
+    @Nullable
+    private RefreshLayout mRefreshLayout;
+    @Nullable
     private SearchLayout mSearchLayout;
     @Nullable
     private SearchBar mSearchBar;
@@ -202,6 +214,10 @@ public final class GalleryListScene extends BaseScene
     private FabLayout mFabLayout;
     @Nullable
     private FloatingActionButton mFloatingActionButton;
+    @Nullable
+    private CardView mFilterTagBar;
+    @Nullable
+    private LinearLayout mFilterTagChipContainer;
     @Nullable
     private ViewTransition mViewTransition;
     @Nullable
@@ -260,6 +276,15 @@ public final class GalleryListScene extends BaseScene
 
     private int mHideActionFabSlop;
     private boolean mShowActionFab = true;
+    private int mBaseSearchBarPaddingTop;
+    private int mBaseSearchLayoutPaddingLeft;
+    private int mBaseSearchLayoutPaddingTop;
+    private int mBaseSearchLayoutPaddingRight;
+    private int mBaseSearchLayoutPaddingBottom;
+    private int mBaseFastScrollerPaddingLeft;
+    private int mBaseFastScrollerPaddingTop;
+    private int mBaseFastScrollerPaddingRight;
+    private int mBaseFastScrollerPaddingBottom;
 
     @Nullable
     private final RecyclerView.OnScrollListener mOnScrollListener = new RecyclerView.OnScrollListener() {
@@ -331,6 +356,7 @@ public final class GalleryListScene extends BaseScene
 
     @Override
     public void onNewArguments(@NonNull Bundle args) {
+        clearFilterSessionState();
         handleArgs(args);
         onUpdateUrlBuilder();
         if (null != mHelper) {
@@ -437,6 +463,13 @@ public final class GalleryListScene extends BaseScene
         mHasFirstRefresh = savedInstanceState.getBoolean(KEY_HAS_FIRST_REFRESH);
         mUrlBuilder = savedInstanceState.getParcelable(KEY_LIST_URL_BUILDER);
         mState = savedInstanceState.getInt(KEY_STATE);
+        filterOpen = savedInstanceState.getBoolean(KEY_FILTER_OPEN, false);
+        ArrayList<String> savedFilterTags = savedInstanceState.getStringArrayList(KEY_FILTER_TAG_LIST);
+        filterTagList.clear();
+        if (savedFilterTags != null) {
+            filterTagList.addAll(savedFilterTags);
+        }
+        mFilterBaseUrlBuilder = savedInstanceState.getParcelable(KEY_FILTER_BASE_URL_BUILDER);
     }
 
     @Override
@@ -452,6 +485,9 @@ public final class GalleryListScene extends BaseScene
         outState.putBoolean(KEY_HAS_FIRST_REFRESH, hasFirstRefresh);
         outState.putParcelable(KEY_LIST_URL_BUILDER, mUrlBuilder);
         outState.putInt(KEY_STATE, mState);
+        outState.putBoolean(KEY_FILTER_OPEN, filterOpen);
+        outState.putStringArrayList(KEY_FILTER_TAG_LIST, new ArrayList<>(filterTagList));
+        outState.putParcelable(KEY_FILTER_BASE_URL_BUILDER, mFilterBaseUrlBuilder);
     }
 
     @Override
@@ -635,13 +671,18 @@ public final class GalleryListScene extends BaseScene
 
         View mainLayout = ViewUtils.$$(view, R.id.main_layout);
         ContentLayout contentLayout = (ContentLayout) ViewUtils.$$(mainLayout, R.id.content_layout);
+        mContentLayout = contentLayout;
         mRecyclerView = contentLayout.getRecyclerView();
         FastScroller fastScroller = contentLayout.getFastScroller();
+        mFastScroller = fastScroller;
         RefreshLayout refreshLayout = contentLayout.getRefreshLayout();
+        mRefreshLayout = refreshLayout;
         mSearchLayout = (SearchLayout) ViewUtils.$$(mainLayout, R.id.search_layout);
         mSearchBar = (SearchBar) ViewUtils.$$(mainLayout, R.id.search_bar);
         mFabLayout = (FabLayout) ViewUtils.$$(mainLayout, R.id.fab_layout);
         mFloatingActionButton = (FloatingActionButton) ViewUtils.$$(mFabLayout, R.id.tag_filter);
+        mFilterTagBar = (CardView) ViewUtils.$$(mainLayout, R.id.filter_tag_bar);
+        mFilterTagChipContainer = (LinearLayout) ViewUtils.$$(mainLayout, R.id.filter_tag_chip_container);
 
         onFilter(filterOpen, filterTagList.size());
 
@@ -675,6 +716,16 @@ public final class GalleryListScene extends BaseScene
                 fastScroller.getPaddingRight(), fastScroller.getPaddingBottom());
 
         refreshLayout.setHeaderTranslationY(paddingTopSB);
+
+        mBaseSearchBarPaddingTop = paddingTopSB;
+        mBaseSearchLayoutPaddingLeft = mSearchLayout.getPaddingLeft();
+        mBaseSearchLayoutPaddingTop = mSearchLayout.getPaddingTop() + paddingTopSB;
+        mBaseSearchLayoutPaddingRight = mSearchLayout.getPaddingRight();
+        mBaseSearchLayoutPaddingBottom = mSearchLayout.getPaddingBottom() + paddingBottomFab;
+        mBaseFastScrollerPaddingLeft = fastScroller.getPaddingLeft();
+        mBaseFastScrollerPaddingTop = fastScroller.getPaddingTop();
+        mBaseFastScrollerPaddingRight = fastScroller.getPaddingRight();
+        mBaseFastScrollerPaddingBottom = fastScroller.getPaddingBottom();
 
         mLeftDrawable = new DrawerArrowDrawable(context, AttrResources.getAttrColor(context, R.attr.drawableColorPrimary));
         mRightDrawable = new AddDeleteDrawable(context, AttrResources.getAttrColor(context, R.attr.drawableColorPrimary));
@@ -717,6 +768,7 @@ public final class GalleryListScene extends BaseScene
             mHelper.firstRefresh();
         }
 
+        updateFilterTagBar();
         guideQuickSearch();
 
         return view;
@@ -843,43 +895,47 @@ public final class GalleryListScene extends BaseScene
         }
 
         if (filterOpen) {
-            mUrlBuilder.set(searchTagBuild(tagName), ListUrlBuilder.MODE_FILTER);
-            onFilter(filterOpen, filterTagList.size());
+            ensureFilterBaseUrlBuilder();
+            if (!filterTagList.contains(tagName)) {
+                filterTagList.add(tagName);
+            }
+            applyFilterTagSearch();
         } else {
             mUrlBuilder.set(tagName);
+            mUrlBuilder.setPageIndex(0);
+            onUpdateUrlBuilder();
+            mHelper.refresh();
+            setState(STATE_NORMAL);
         }
-
-        mUrlBuilder.setPageIndex(0);
-        onUpdateUrlBuilder();
-        mHelper.refresh();
-        setState(STATE_NORMAL);
     }
 
-    private String searchTagBuild(String tagName) {
-
-        String[] list = tagName.split(":");
-
-        String key;
-        if (list.length == 2) {
-            key = list[1];
-        } else {
-            key = list[0];
+    private void ensureFilterBaseUrlBuilder() {
+        if (mUrlBuilder != null && mFilterBaseUrlBuilder == null) {
+            mFilterBaseUrlBuilder = mUrlBuilder.clone();
         }
-
-        if (!filterTagList.contains(key)) {
-            filterTagList.add(key);
-        }
-        return listToString(filterTagList);
     }
 
-    private String listToString(List<String> list) {
+    private String buildFilterSearchKeyword(String tagName) {
+        String[] list = tagName.split(":", 2);
+        if (list.length != 2) {
+            return tagName;
+        }
+
+        String prefix = EhTagDatabase.NAMESPACE_TO_PREFIX.get(list[0]);
+        if (prefix == null) {
+            return tagName;
+        }
+
+        return prefix + "\"" + list[1] + "$\"";
+    }
+
+    private String buildFilterQuery(List<String> list) {
         StringBuilder result = new StringBuilder();
         for (int i = 0; i < list.size(); i++) {
-            if (i == 0) {
-                result.append(list.get(i));
-            } else {
-                result.append("  ").append(list.get(i));
+            if (i > 0) {
+                result.append("  ");
             }
+            result.append(buildFilterSearchKeyword(list.get(i)));
         }
         return result.toString();
     }
@@ -1219,15 +1275,18 @@ public final class GalleryListScene extends BaseScene
             return;
         }
 
-        if (filterOpen && filterTagList.size() > 1) {
-            filterTagList.remove(filterTagList.size() - 1);
-            mUrlBuilder.set(listToString(filterTagList), ListUrlBuilder.MODE_FILTER);
-            onFilter(filterOpen, filterTagList.size());
+        if (filterOpen) {
+            if (!filterTagList.isEmpty()) {
+                filterTagList.remove(filterTagList.size() - 1);
+                if (filterTagList.isEmpty()) {
+                    disableTagFilterAndRestore();
+                } else {
+                    applyFilterTagSearch();
+                }
+                return;
+            }
 
-            mUrlBuilder.setPageIndex(0);
-            onUpdateUrlBuilder();
-            mHelper.refresh();
-            setState(STATE_NORMAL);
+            clearFilterSessionState();
             return;
         }
 
@@ -1638,8 +1697,14 @@ public final class GalleryListScene extends BaseScene
 
         switch (position) {
             case 0: // 开启\关闭多标签搜索
-                filterOpen = !filterOpen;
-                onFilter(filterOpen, filterTagList.size());
+                if (filterOpen) {
+                    disableTagFilterAndRestore();
+                } else {
+                    filterOpen = true;
+                    ensureFilterBaseUrlBuilder();
+                    onFilter(true, filterTagList.size());
+                    updateFilterTagBar();
+                }
                 break;
             case 1: // Go to
                 if (mHelper.canGoTo()) {
@@ -1669,7 +1734,6 @@ public final class GalleryListScene extends BaseScene
         }
         if (!open) {
             mFloatingActionButton.setImageResource(R.drawable.ic_baseline_filter_none_24);
-            filterTagList.clear();
             return;
         }
 
@@ -1709,6 +1773,127 @@ public final class GalleryListScene extends BaseScene
                 break;
         }
 
+    }
+
+    private void applyFilterTagSearch() {
+        if (mUrlBuilder == null || mHelper == null) {
+            return;
+        }
+
+        if (filterTagList.isEmpty()) {
+            disableTagFilterAndRestore();
+            return;
+        }
+
+        mUrlBuilder.set(buildFilterQuery(filterTagList), ListUrlBuilder.MODE_FILTER);
+        mUrlBuilder.setPageIndex(0);
+        onFilter(true, filterTagList.size());
+        updateFilterTagBar();
+        onUpdateUrlBuilder();
+        mHelper.refresh();
+        setState(STATE_NORMAL);
+    }
+
+    private void disableTagFilterAndRestore() {
+        boolean hadFilter = !filterTagList.isEmpty();
+        filterOpen = false;
+        filterTagList.clear();
+        onFilter(false, 0);
+        updateFilterTagBar();
+
+        if (hadFilter && mFilterBaseUrlBuilder != null && mUrlBuilder != null && mHelper != null) {
+            mUrlBuilder.set(mFilterBaseUrlBuilder);
+            onUpdateUrlBuilder();
+            mHelper.refresh();
+            setState(STATE_NORMAL);
+        }
+
+        mFilterBaseUrlBuilder = null;
+    }
+
+    private void clearFilterSessionState() {
+        filterOpen = false;
+        filterTagList.clear();
+        mFilterBaseUrlBuilder = null;
+        onFilter(false, 0);
+        updateFilterTagBar();
+    }
+
+    private CharSequence getFilterTagDisplayText(String tagName) {
+        if (Settings.getShowTagTranslations()) {
+            if (ehTags == null) {
+                ehTags = EhTagDatabase.getInstance(getContext());
+            }
+            return TagTranslationUtil.getTagCNBody(tagName.split(":"), ehTags);
+        }
+
+        String[] parts = tagName.split(":", 2);
+        return parts.length > 1 ? parts[1] : tagName;
+    }
+
+    private void removeFilterTag(String tagName) {
+        if (!filterTagList.remove(tagName)) {
+            return;
+        }
+
+        if (filterTagList.isEmpty()) {
+            disableTagFilterAndRestore();
+        } else {
+            applyFilterTagSearch();
+        }
+    }
+
+    private void updateFilterTagBar() {
+        if (mFilterTagBar == null || mFilterTagChipContainer == null) {
+            return;
+        }
+
+        mFilterTagChipContainer.removeAllViews();
+
+        if (!filterOpen || filterTagList.isEmpty()) {
+            mFilterTagBar.setVisibility(View.GONE);
+            applyFilterTagBarInset(0);
+            return;
+        }
+
+        int colorTag = AttrResources.getAttrColor(getContext(), R.attr.tagBackgroundColor);
+        LayoutInflater inflater = getLayoutInflater();
+        for (String tagName : filterTagList) {
+            Chip chip = (Chip) inflater.inflate(R.layout.item_chip_tag, mFilterTagChipContainer, false);
+            chip.setChipBackgroundColor(ColorStateList.valueOf(colorTag));
+            chip.setTextColor(Color.WHITE);
+            chip.setText(getFilterTagDisplayText(tagName));
+            chip.setTag(tagName);
+            chip.setCloseIconVisible(true);
+            chip.setOnClickListener(v -> removeFilterTag((String) v.getTag()));
+            chip.setOnCloseIconClickListener(v -> removeFilterTag((String) v.getTag()));
+            mFilterTagChipContainer.addView(chip);
+        }
+
+        mFilterTagBar.setVisibility(View.VISIBLE);
+        mFilterTagBar.post(() -> {
+            if (mFilterTagBar == null) {
+                return;
+            }
+            applyFilterTagBarInset(mFilterTagBar.getHeight());
+        });
+    }
+
+    private void applyFilterTagBarInset(int extraInset) {
+        if (mContentLayout != null) {
+            mContentLayout.setFitPaddingTop(extraInset);
+        }
+        if (mRefreshLayout != null) {
+            mRefreshLayout.setHeaderTranslationY(mBaseSearchBarPaddingTop + extraInset);
+        }
+        if (mFastScroller != null) {
+            mFastScroller.setPadding(mBaseFastScrollerPaddingLeft, mBaseFastScrollerPaddingTop + extraInset,
+                    mBaseFastScrollerPaddingRight, mBaseFastScrollerPaddingBottom);
+        }
+        if (mSearchLayout != null) {
+            mSearchLayout.setPadding(mBaseSearchLayoutPaddingLeft, mBaseSearchLayoutPaddingTop + extraInset,
+                    mBaseSearchLayoutPaddingRight, mBaseSearchLayoutPaddingBottom);
+        }
     }
 
     @SuppressLint("RtlHardcoded")
@@ -1973,6 +2158,13 @@ public final class GalleryListScene extends BaseScene
         // 过滤搜索文本中的换行符，避免影响搜索语法
         if (query != null) {
             query = query.replace("\r", " ").replace("\n", " ");
+        }
+
+        if (filterOpen) {
+            if (mFilterBaseUrlBuilder != null) {
+                mUrlBuilder.set(mFilterBaseUrlBuilder);
+            }
+            clearFilterSessionState();
         }
 
         if (mState == STATE_SEARCH || mState == STATE_SEARCH_SHOW_LIST) {

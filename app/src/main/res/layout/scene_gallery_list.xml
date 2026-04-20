@@ -41,6 +41,35 @@
         android:layout_marginTop="@dimen/gallery_search_bar_margin_v"
         style="@style/CardView.Normal"/>
 
+    <androidx.cardview.widget.CardView
+        android:id="@+id/filter_tag_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="@dimen/gallery_search_bar_margin_h"
+        android:layout_marginTop="@dimen/gallery_padding_top_search_bar"
+        android:layout_marginRight="@dimen/gallery_search_bar_margin_h"
+        android:visibility="gone"
+        style="@style/CardView.Normal">
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:overScrollMode="never"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/filter_tag_chip_container"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingLeft="8dp"
+                android:paddingTop="6dp"
+                android:paddingRight="8dp"
+                android:paddingBottom="6dp"/>
+        </HorizontalScrollView>
+    </androidx.cardview.widget.CardView>
+
     <com.hippo.widget.FabLayout
         xmlns:app="http://schemas.android.com/apk/res-auto"
         android:id="@+id/fab_layout"

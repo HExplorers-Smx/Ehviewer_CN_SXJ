@@ -34,6 +34,7 @@ import android.util.Pair;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
@@ -100,10 +101,31 @@ public class SearchBar extends CardView implements View.OnClickListener,
     private boolean mAllowEmptySearch = true;
 
     private boolean mInAnimation;
+    private boolean mKeyboardVisible;
 
     private boolean showTranslation;
 
     private boolean isComeFromDownload = false;
+
+    private final ViewTreeObserver.OnGlobalLayoutListener mKeyboardLayoutListener = () -> {
+        View rootView = getRootView();
+        if (rootView == null) {
+            return;
+        }
+
+        Rect visibleRect = new Rect();
+        rootView.getWindowVisibleDisplayFrame(visibleRect);
+        int heightDiff = rootView.getHeight() - visibleRect.height();
+        boolean keyboardVisible = heightDiff > rootView.getHeight() * 0.15f;
+        if (mKeyboardVisible && !keyboardVisible && mState == STATE_SEARCH_LIST && mHelper != null) {
+            post(() -> {
+                if (mState == STATE_SEARCH_LIST && mHelper != null) {
+                    mHelper.onSearchEditTextBackPressed();
+                }
+            });
+        }
+        mKeyboardVisible = keyboardVisible;
+    };
 
     public SearchBar(Context context) {
         super(context);
@@ -337,7 +359,7 @@ public class SearchBar extends CardView implements View.OnClickListener,
             return;
         }
         String query = mEditText.getText().toString().trim();
-        query.replaceAll("\n","");
+        query = query.replace("\r", " ").replace("\n", " ");
         if (!mAllowEmptySearch && TextUtils.isEmpty(query)) {
             return;
         }
@@ -499,6 +521,20 @@ public class SearchBar extends CardView implements View.OnClickListener,
             setProgress(0f);
             mListContainer.setVisibility(View.GONE);
         }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        getViewTreeObserver().addOnGlobalLayoutListener(mKeyboardLayoutListener);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        if (getViewTreeObserver().isAlive()) {
+            getViewTreeObserver().removeOnGlobalLayoutListener(mKeyboardLayoutListener);
+        }
+        super.onDetachedFromWindow();
     }
 
     @Override
