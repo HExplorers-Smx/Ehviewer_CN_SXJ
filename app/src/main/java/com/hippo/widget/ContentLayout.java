@@ -442,6 +442,13 @@ public class ContentLayout extends FrameLayout {
             return mCurrentTaskId == taskId;
         }
 
+        /**
+         * Lets specialized list helpers distinguish a refresh from page append.
+         */
+        protected int getCurrentTaskType() {
+            return mCurrentTaskType;
+        }
+
         public int getPages() {
             return mPages;
         }
