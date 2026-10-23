@@ -71,8 +71,8 @@ public class GalleryWorkDeduplicatorTest {
     }
     @Test
     public void recognizesAlternateBilingualTitles() {
-        GalleryInfo first = gallery(100, "[Artist] Midnight Rain | 夜半の雨 [English]", "EN", 22);
-        GalleryInfo second = gallery(101, "夜半の雨 [Chinese]", "ZH", 23);
+        GalleryInfo first = gallery(100, "[Artist] Midnight Rain | 夜半の雨物語 [English]", "EN", 22);
+        GalleryInfo second = gallery(101, "夜半の雨物語 [Chinese]", "ZH", 23);
         assertTrue(GalleryWorkDeduplicator.isSameWork(first, second));
     }
 
