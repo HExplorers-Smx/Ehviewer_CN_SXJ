@@ -19,7 +19,7 @@ android {
     // using -PsplitAbiApks=true.
     splits {
         abi {
-            enable project.findProperty('splitAbiApks') == 'true'
+            enable (project.findProperty('splitAbiApks') == 'true')
             reset()
             include 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
             universalApk true
