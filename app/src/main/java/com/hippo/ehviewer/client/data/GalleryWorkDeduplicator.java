@@ -28,6 +28,7 @@ public final class GalleryWorkDeduplicator {
 
     private static final Pattern BRACKETED = Pattern.compile("\\[[^\\]]{1,80}\\]|\\([^)]{1,80}\\)");
     private static final Pattern NON_WORD = Pattern.compile("[\\p{P}\\p{S}\\s]+");
+    private static final Pattern JAPANESE_KANA = Pattern.compile("[\\u3040-\\u30ff]");
     private static final Pattern NOTE_LANGUAGE = Pattern.compile(
             "(?i)(?:^|\\W)(?:chinese|english|japanese|korean|spanish|russian|french|"
                     + "portuguese|thai|german|italian|vietnamese|polish|hungarian|dutch|"
@@ -93,8 +94,13 @@ public final class GalleryWorkDeduplicator {
                 }
             }
         }
-        // Unmarked original Japanese entries should not be treated as a known
-        // Japanese translation. An unknown language remains an allowed fallback.
+        // Some original Japanese works carry no language tag at all.
+        // Prefer them only when the title contains kana; otherwise keep them as fallback.
+        if ("JA".equalsIgnoreCase(language) && actualLanguage == null
+                && ((info.title != null && JAPANESE_KANA.matcher(info.title).find())
+                || (info.titleJpn != null && JAPANESE_KANA.matcher(info.titleJpn).find()))) {
+            return 1;
+        }
         return language.equalsIgnoreCase(actualLanguage) ? 1 : 0;
     }
 
