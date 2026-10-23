@@ -166,7 +166,7 @@ public final class GalleryWorkDeduplicator {
         if (aliases.length > 1) {
             for (String alias : aliases) {
                 String key = normalize(alias);
-                if (key.length() >= 8) {
+                if (key.length() >= 5) {
                     result.add(key);
                 }
             }
