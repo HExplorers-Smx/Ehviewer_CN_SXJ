@@ -69,4 +69,44 @@ public class GalleryWorkDeduplicatorTest {
         assertTrue(GalleryWorkDeduplicator.isSameWork(earlier, later));
         assertTrue(GalleryWorkDeduplicator.prefer(later, earlier, "ZH"));
     }
+    @Test
+    public void recognizesAlternateBilingualTitles() {
+        GalleryInfo first = gallery(100, "[Artist] Midnight Rain | 夜半の雨 [English]", "EN", 22);
+        GalleryInfo second = gallery(101, "夜半の雨 [Chinese]", "ZH", 23);
+        assertTrue(GalleryWorkDeduplicator.isSameWork(first, second));
+    }
+
+    @Test
+    public void sameCoverAndCreatorCanMatchEntirelyDifferentTranslatedTitles() {
+        GalleryInfo original = gallery(200, "夜更けの物語", "JA", 24);
+        GalleryInfo translated = gallery(201, "A Tale of the Night [English]", "EN", 25);
+        original.simpleTags = new String[]{"artist:sample creator", "language:japanese"};
+        translated.simpleTags = new String[]{"artist:sample creator", "language:english"};
+        original.thumb = "https://ehgt.org/t/abc123def456/89abcdef7654321_100.jpg";
+        translated.thumb = "https://another.ehgt.org/t/abc123def456/89abcdef7654321_250.jpg";
+        assertTrue(GalleryWorkDeduplicator.isSameWork(original, translated));
+    }
+
+    @Test
+    public void doNotGroupSameCreatorWhenCoverDiffers() {
+        GalleryInfo first = gallery(300, "First Unrelated Work", "EN", 20);
+        GalleryInfo second = gallery(301, "Second Unrelated Work", "ZH", 20);
+        first.simpleTags = new String[]{"artist:sample creator"};
+        second.simpleTags = new String[]{"artist:sample creator"};
+        first.thumb = "https://ehgt.org/t/abc123def456/89abcdef7654321_100.jpg";
+        second.thumb = "https://ehgt.org/t/abc123def456/001122334455667_100.jpg";
+        assertFalse(GalleryWorkDeduplicator.isSameWork(first, second));
+    }
+
+    @Test
+    public void doNotGroupDifferentTitlesUsingSharedPlaceholder() {
+        GalleryInfo first = gallery(400, "First Unrelated Work", "EN", 20);
+        GalleryInfo second = gallery(401, "Second Unrelated Work", "ZH", 20);
+        first.simpleTags = new String[]{"artist:sample creator"};
+        second.simpleTags = new String[]{"artist:sample creator"};
+        first.thumb = "https://ehgt.org/t/placeholder/default_gallery_cover.png";
+        second.thumb = first.thumb;
+        assertFalse(GalleryWorkDeduplicator.isSameWork(first, second));
+    }
+
 }
