@@ -1,6 +1,8 @@
 package com.hippo.ehviewer.client.data;
 
 import java.text.Normalizer;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -28,6 +30,8 @@ public final class GalleryWorkDeduplicator {
 
     private static final Pattern BRACKETED = Pattern.compile("\\[[^\\]]{1,80}\\]|\\([^)]{1,80}\\)");
     private static final Pattern NON_WORD = Pattern.compile("[\\p{P}\\p{S}\\s]+");
+    private static final Pattern ALIAS_SEPARATOR = Pattern.compile("\\s+[|｜/]\\s+");
+    private static final Pattern COVER_SIZE = Pattern.compile("_(?:100|150|200|250|300|500)(?=\\.(?:jpg|jpeg|png|webp)$)", Pattern.CASE_INSENSITIVE);
     private static final Pattern JAPANESE_KANA = Pattern.compile("[\\u3040-\\u30ff]");
     private static final Pattern NOTE_LANGUAGE = Pattern.compile(
             "(?i)(?:^|\\W)(?:chinese|english|japanese|korean|spanish|russian|french|"
@@ -121,14 +125,107 @@ public final class GalleryWorkDeduplicator {
                 return false;
             }
         }
-        String aTitle = normalize(a.title);
-        String aOriginal = normalize(a.titleJpn);
-        String bTitle = normalize(b.title);
-        String bOriginal = normalize(b.titleJpn);
-        return equalNonempty(aTitle, bTitle)
-                || equalNonempty(aTitle, bOriginal)
-                || equalNonempty(aOriginal, bTitle)
-                || equalNonempty(aOriginal, bOriginal);
+        if (hasMatchingTitle(a, b)) {
+            return true;
+        }
+
+        // A genuinely identical cover thumbnail is a stronger link than a
+        // translated title. E-Hentai gallery covers use content-addressed
+        // image paths. Require a long, image-like path plus overlapping
+        // creator/series tags to avoid grouping generic placeholder images.
+        return hasMatchingCover(a, b) && hasSharedIdentityTag(a, b);
+    }
+
+    private static boolean hasMatchingTitle(GalleryInfo a, GalleryInfo b) {
+        for (String left : titleAlternates(a)) {
+            for (String right : titleAlternates(b)) {
+                if (equalNonempty(left, right)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static List<String> titleAlternates(GalleryInfo info) {
+        List<String> result = new ArrayList<>();
+        appendAlternates(result, info.title);
+        appendAlternates(result, info.titleJpn);
+        return result;
+    }
+
+    private static void appendAlternates(List<String> result, String title) {
+        if (title == null || title.isEmpty()) {
+            return;
+        }
+        result.add(normalize(title));
+        // Some submissions put original and translated names in the same title.
+        // Require spaced separators so slashes in standalone titles do not
+        // accidentally become content-free matches.
+        String[] aliases = ALIAS_SEPARATOR.split(title, 4);
+        if (aliases.length > 1) {
+            for (String alias : aliases) {
+                String key = normalize(alias);
+                if (key.length() >= 8) {
+                    result.add(key);
+                }
+            }
+        }
+    }
+
+    private static boolean hasSharedIdentityTag(GalleryInfo a, GalleryInfo b) {
+        return anyCommonTag(a, b, "artist:")
+                || anyCommonTag(a, b, "group:")
+                || anyCommonTag(a, b, "parody:");
+    }
+
+    private static boolean anyCommonTag(GalleryInfo a, GalleryInfo b, String namespace) {
+        if (a.simpleTags == null || b.simpleTags == null) {
+            return false;
+        }
+        for (String left : a.simpleTags) {
+            if (left == null || !left.toLowerCase(Locale.ROOT).startsWith(namespace)) {
+                continue;
+            }
+            for (String right : b.simpleTags) {
+                if (right != null && left.equalsIgnoreCase(right)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasMatchingCover(GalleryInfo a, GalleryInfo b) {
+        String left = coverKey(a.thumb);
+        String right = coverKey(b.thumb);
+        return !left.isEmpty() && left.equals(right);
+    }
+
+    private static String coverKey(String thumb) {
+        if (thumb == null || thumb.isEmpty()) {
+            return "";
+        }
+        try {
+            String path = new URI(thumb).getPath();
+            if (path == null || path.length() < 35) {
+                return "";
+            }
+            String lower = path.toLowerCase(Locale.ROOT);
+            if (!(lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                    || lower.endsWith(".png") || lower.endsWith(".webp"))) {
+                return "";
+            }
+            // Exclude short generic images, loading indicators and placeholders.
+            String name = lower.substring(lower.lastIndexOf('/') + 1);
+            if (name.length() < 15 || name.contains("default")
+                    || name.contains("placeholder") || name.contains("blank")) {
+                return "";
+            }
+            return COVER_SIZE.matcher(lower).replaceFirst("");
+        } catch (URISyntaxException e) {
+            return "";
+        }
     }
 
     private static boolean equalNonempty(String first, String second) {
