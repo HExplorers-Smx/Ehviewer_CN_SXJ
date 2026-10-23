@@ -84,6 +84,7 @@ import com.hippo.ehviewer.client.EhTagDatabase;
 import com.hippo.ehviewer.client.EhUrl;
 import com.hippo.ehviewer.client.EhUtils;
 import com.hippo.ehviewer.client.data.GalleryInfo;
+import com.hippo.ehviewer.client.data.GalleryWorkDeduplicator;
 import com.hippo.ehviewer.client.data.ListUrlBuilder;
 import com.hippo.ehviewer.client.data.userTag.UserTag;
 import com.hippo.ehviewer.client.data.userTag.UserTagList;
@@ -137,6 +138,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 
@@ -1487,9 +1489,44 @@ public final class GalleryListScene extends BaseScene
                 }
                 onItemClick(null, gInfoL.get((int) (Math.random() * gInfoL.size())));
                 break;
+            case 4: // Preferred language and collapse duplicate translations
+                showPreferredLanguageDialog();
+                break;
         }
 
         view.setExpanded(false);
+    }
+
+    private void showPreferredLanguageDialog() {
+        Context context = getEHContext();
+        if (context == null) {
+            return;
+        }
+        String current = Settings.getString(
+                GalleryWorkDeduplicator.SETTING_KEY, GalleryWorkDeduplicator.DEFAULT_LANGUAGE);
+        int selected = 2; // Chinese preferred by default.
+        for (int i = 0; i < GalleryWorkDeduplicator.LANGUAGE_CHOICES.length; i++) {
+            if (GalleryWorkDeduplicator.LANGUAGE_CHOICES[i].equals(current)) {
+                selected = i;
+                break;
+            }
+        }
+        new AlertDialog.Builder(context)
+                .setTitle(R.string.gallery_work_language_title)
+                .setSingleChoiceItems(R.array.gallery_work_language_choices, selected, (dialog, which) -> {
+                    if (which < 0 || which >= GalleryWorkDeduplicator.LANGUAGE_CHOICES.length) {
+                        return;
+                    }
+                    Settings.putString(GalleryWorkDeduplicator.SETTING_KEY,
+                            GalleryWorkDeduplicator.LANGUAGE_CHOICES[which]);
+                    dialog.dismiss();
+                    if (mHelper != null) {
+                        // Reload raw galleries so previously collapsed versions can be reconsidered.
+                        mHelper.refresh();
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     public void onFilter(boolean open, int num) {
@@ -2081,6 +2118,45 @@ public final class GalleryListScene extends BaseScene
     }
 
     class GalleryListHelper extends GalleryInfoContentHelper {
+
+        @Override
+        public void onGetPageData(int taskId, GalleryListParser.Result result,
+                                  List<GalleryInfo> data) {
+            String language = Settings.getString(
+                    GalleryWorkDeduplicator.SETTING_KEY, GalleryWorkDeduplicator.DEFAULT_LANGUAGE);
+            if (GalleryWorkDeduplicator.isEnabled(language) && data != null) {
+                // Deduplicate the fetched page before ContentLayout records its page dividers.
+                List<GalleryInfo> filtered = GalleryWorkDeduplicator.reducePage(data, language);
+                int taskType = getCurrentTaskType();
+                if (taskType == TYPE_NEXT_PAGE || taskType == TYPE_NEXT_PAGE_KEEP_POS
+                        || taskType == TYPE_PRE_PAGE || taskType == TYPE_PRE_PAGE_KEEP_POS) {
+                    boolean replaced = false;
+                    for (Iterator<GalleryInfo> it = filtered.iterator(); it.hasNext(); ) {
+                        GalleryInfo candidate = it.next();
+                        for (int i = 0; i < size(); i++) {
+                            GalleryInfo existing = getDataAtEx(i);
+                            if (!GalleryWorkDeduplicator.isSameWork(candidate, existing)) {
+                                continue;
+                            }
+                            if (GalleryWorkDeduplicator.prefer(candidate, existing, language)) {
+                                // Replace in-place: preserve scroll offsets and loaded page dividers.
+                                onRemoveData(existing);
+                                getData().set(i, candidate);
+                                onAddData(candidate);
+                                replaced = true;
+                            }
+                            it.remove();
+                            break;
+                        }
+                    }
+                    if (replaced) {
+                        notifyDataSetChanged();
+                    }
+                }
+                data = filtered;
+            }
+            super.onGetPageData(taskId, result, data);
+        }
 
         @Override
         protected void getPageData(int taskId, int type, int page) {
