@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gallery_work_language_title">Browse language priority / group translations</string>
+    <string-array name="gallery_work_language_choices">
+        <item>Show every version (disable grouping)</item>
+        <item>Group duplicates (no language priority)</item>
+        <item>Group duplicates · Chinese preferred</item>
+        <item>Group duplicates · Japanese preferred</item>
+        <item>Group duplicates · English preferred</item>
+        <item>Group duplicates · Korean preferred</item>
+        <item>Group duplicates · Spanish preferred</item>
+        <item>Group duplicates · Russian preferred</item>
+        <item>Group duplicates · French preferred</item>
+        <item>Group duplicates · Portuguese preferred</item>
+        <item>Group duplicates · Thai preferred</item>
+        <item>Group duplicates · German preferred</item>
+        <item>Group duplicates · Italian preferred</item>
+        <item>Group duplicates · Vietnamese preferred</item>
+        <item>Group duplicates · Polish preferred</item>
+        <item>Group duplicates · Hungarian preferred</item>
+        <item>Group duplicates · Dutch preferred</item>
+    </string-array>
+</resources>
