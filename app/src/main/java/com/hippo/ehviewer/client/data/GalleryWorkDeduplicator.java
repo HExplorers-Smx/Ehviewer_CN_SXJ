@@ -204,7 +204,7 @@ public final class GalleryWorkDeduplicator {
         if (aliases.length > 1) {
             for (String alias : aliases) {
                 String key = normalize(alias);
-                if (key.length() >= 5) {
+                if (isMeaningfulTitleKey(key)) {
                     result.add(key);
                 }
             }
@@ -267,12 +267,15 @@ public final class GalleryWorkDeduplicator {
     }
 
     private static boolean equalNonempty(String first, String second) {
-        // Avoid merging unrelated galleries with extremely generic short titles.
-        // Short CJK titles are common; three ideographs/kana with matching
-        // category and compatible page count are still useful signals.
-        boolean distinctCjkTitle = first.length() >= 3
-                && first.matches(".*[\\u3400-\\u9fff\\u3040-\\u30ff].*");
-        return first.equals(second) && (first.length() >= 5 || distinctCjkTitle);
+        return first.equals(second) && isMeaningfulTitleKey(first);
+    }
+
+    private static boolean isMeaningfulTitleKey(String title) {
+        // Three-character Han/kana names are common; empty or one-word generic
+        // English fragments aren't safe keys for collapsing entire galleries.
+        return title.length() >= 5
+                || (title.length() >= 3
+                && title.matches(".*[\\u3400-\\u9fff\\u3040-\\u30ff].*"));
     }
 
     private static String normalize(String input) {
