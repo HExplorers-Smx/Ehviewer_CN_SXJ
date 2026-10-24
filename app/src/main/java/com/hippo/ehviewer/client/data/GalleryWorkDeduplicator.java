@@ -268,7 +268,11 @@ public final class GalleryWorkDeduplicator {
 
     private static boolean equalNonempty(String first, String second) {
         // Avoid merging unrelated galleries with extremely generic short titles.
-        return first.length() >= 5 && first.equals(second);
+        // Short CJK titles are common; three ideographs/kana with matching
+        // category and compatible page count are still useful signals.
+        boolean distinctCjkTitle = first.length() >= 3
+                && first.matches(".*[\\u3400-\\u9fff\\u3040-\\u30ff].*");
+        return first.equals(second) && (first.length() >= 5 || distinctCjkTitle);
     }
 
     private static String normalize(String input) {
