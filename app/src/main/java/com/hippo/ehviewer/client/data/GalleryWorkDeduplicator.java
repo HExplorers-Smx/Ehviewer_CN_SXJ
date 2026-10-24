@@ -38,6 +38,10 @@ public final class GalleryWorkDeduplicator {
                     + "portuguese|thai|german|italian|vietnamese|polish|hungarian|dutch|"
                     + "中文|中国語|中國語|日本語|英文|英訳|英語|韓国語|汉化|漢化|翻译|翻譯|翻訳|"
                     + "translated|translation|scanlation)(?:$|\\W)");
+    private static final Pattern NON_WORK_NOTE = Pattern.compile(
+            "(?i)(?:digital|digital版|dl版|scan|scanned|uncensored|decensored|"
+                    + "full[ -]?color|colorized|電子版|無修正|无修正|無碼|无码|无删减|"
+                    + "修正版|フルカラー|電子書籍|第?[0-9]{2,3}回|^c[0-9]{2,3}$)");
     private static final Pattern TRANSLATOR_GROUP = Pattern.compile(
             ".*(?:汉化|漢化|翻译|翻譯|翻訳|scanlation|translated|translation).*",
             Pattern.CASE_INSENSITIVE);
@@ -61,24 +65,58 @@ public final class GalleryWorkDeduplicator {
             result.addAll(source);
             return result;
         }
-        for (GalleryInfo candidate : source) {
-            if (candidate == null) {
-                continue;
+
+        List<GalleryInfo> entries = new ArrayList<>();
+        for (GalleryInfo item : source) {
+            if (item != null) {
+                entries.add(item);
             }
-            int existingPosition = -1;
-            for (int i = 0; i < result.size(); i++) {
-                if (isSameWork(result.get(i), candidate)) {
-                    existingPosition = i;
-                    break;
+        }
+
+        // A and B can share the Japanese title, while B and C share a
+        // translated alias. Compare ALL entries in the fetched page so a
+        // middle candidate isn't discarded before linking the whole work.
+        int n = entries.size();
+        int[] parent = new int[n];
+        for (int i = 0; i < n; i++) {
+            parent[i] = i;
+        }
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                if (isSameWork(entries.get(i), entries.get(j))) {
+                    parent[findRoot(parent, j)] = findRoot(parent, i);
                 }
             }
-            if (existingPosition == -1) {
-                result.add(candidate);
-            } else if (prefer(candidate, result.get(existingPosition), language)) {
-                result.set(existingPosition, candidate);
+        }
+
+        int[] best = new int[n];
+        boolean[] emitted = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            best[i] = -1;
+        }
+        for (int i = 0; i < n; i++) {
+            int root = findRoot(parent, i);
+            if (best[root] == -1 || prefer(entries.get(i), entries.get(best[root]), language)) {
+                best[root] = i;
+            }
+        }
+        // Preserve the first occurrence position of every work, even if its
+        // selected language version appears later in the same page.
+        for (int i = 0; i < n; i++) {
+            int root = findRoot(parent, i);
+            if (!emitted[root]) {
+                result.add(entries.get(best[root]));
+                emitted[root] = true;
             }
         }
         return result;
+    }
+
+    private static int findRoot(int[] parent, int index) {
+        if (parent[index] != index) {
+            parent[index] = findRoot(parent, parent[index]);
+        }
+        return parent[index];
     }
 
     public static boolean prefer(GalleryInfo candidate, GalleryInfo current, String language) {
@@ -247,7 +285,10 @@ public final class GalleryWorkDeduplicator {
             String contents = note.substring(1, note.length() - 1).trim();
             boolean translatorGroup = TRANSLATOR_GROUP.matcher(contents).matches();
             boolean explicitLanguage = NOTE_LANGUAGE.matcher(" " + contents + " ").find();
-            matcher.appendReplacement(stripped, (translatorGroup || explicitLanguage) ? " " : Matcher.quoteReplacement(note));
+            boolean editionNote = NON_WORK_NOTE.matcher(contents).find();
+            matcher.appendReplacement(stripped,
+                    (translatorGroup || explicitLanguage || editionNote)
+                            ? " " : Matcher.quoteReplacement(note));
         }
         matcher.appendTail(stripped);
         return NON_WORD.matcher(stripped.toString().toLowerCase(Locale.ROOT))
