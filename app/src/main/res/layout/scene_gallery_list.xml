@@ -121,6 +121,7 @@
     <com.google.android.material.chip.Chip
         android:id="@+id/gallery_language_chip"
         style="@style/CustomChipChoice"
+        android:theme="@style/ClipTheme"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
