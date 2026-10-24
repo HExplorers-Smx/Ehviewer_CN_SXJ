@@ -1,33 +1,141 @@
-name: Build
+name: Android ABI APKs
 
 on:
   push:
-    branches: [ BiLi_PC_Gamer ]
+    branches:
+      - BiLi_PC_Gamer
+      - feature/gallery-language-preference-dedup
   pull_request:
-    branches: [ BiLi_PC_Gamer ]
+    branches: [BiLi_PC_Gamer]
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-abi-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup JDK
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: 21
+          distribution: temurin
+          java-version: '21'
 
-      - name: Build
+      # Ubuntu GitHub-hosted runners already include Android cmdline-tools.
+      # Do not use setup-android@v3 here: it requests the removed SDK package "tools".
+      - name: Install Android 35 SDK and CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$SDKMANAGER" ]]; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          fi
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "cmake;3.22.1"
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build installable ABI and universal debug APKs
         run: |
           chmod +x ./gradlew
-          ./gradlew app:assembleDebug
-          
-      - name: Upload Artifact
+          ./gradlew :app:assembleAppReleaseDebug -PsplitAbiApks=true --no-daemon --stacktrace
+
+      - name: Verify and rename APK outputs using Gradle metadata
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import re
+          import shutil
+          from pathlib import Path
+
+          gradle = Path('app/build.gradle').read_text(encoding='utf-8')
+          match = re.search(r'versionName\s+["\']([^"\']+)["\']', gradle)
+          if not match:
+              raise SystemExit('Could not determine versionName from app/build.gradle')
+          version = match.group(1)
+          metadata = Path('app/build/outputs/apk/appRelease/debug/output-metadata.json')
+          if not metadata.is_file():
+              raise SystemExit(f'Missing APK metadata: {metadata}')
+          info = json.loads(metadata.read_text(encoding='utf-8'))
+          expected = {'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64', 'universal'}
+          found = set()
+          dest = Path('dist')
+          dest.mkdir(exist_ok=True)
+          for element in info.get('elements', []):
+              filters = [item['value'] for item in element.get('filters', [])
+                         if item.get('filterType') == 'ABI']
+              if len(filters) > 1:
+                  raise SystemExit(f'Unexpected ABI filters: {filters}')
+              abi = filters[0] if filters else 'universal'
+              if abi not in expected or abi in found:
+                  raise SystemExit(f'Unexpected or duplicate ABI output: {abi}')
+              source = metadata.parent / element['outputFile']
+              if not source.is_file():
+                  raise SystemExit(f'APK metadata references missing file: {source}')
+              target = dest / f'EhViewer-{version}-{abi}-debug.apk'
+              shutil.copy2(source, target)
+              print(f'{abi}: {target} ({target.stat().st_size:,} bytes)')
+              found.add(abi)
+          if found != expected:
+              raise SystemExit(f'ABI outputs mismatch, missing: {expected - found}')
+          PY
+
+      - name: Upload arm64-v8a APK
         uses: actions/upload-artifact@v4
         with:
-          name: Build
-          path: ./app/build/outputs/apk/
+          name: EhViewer-arm64-v8a
+          path: dist/*-arm64-v8a-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload armeabi-v7a APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EhViewer-armeabi-v7a
+          path: dist/*-armeabi-v7a-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload x86_64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EhViewer-x86_64
+          path: dist/*-x86_64-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload x86 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EhViewer-x86
+          path: dist/*-x86-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload universal APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EhViewer-universal
+          path: dist/*-universal-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Run gallery grouping tests
+        run: |
+          ./gradlew :app:testAppReleaseDebugUnitTest --tests 'com.hippo.ehviewer.client.data.GalleryWorkDeduplicatorTest' --no-daemon --stacktrace

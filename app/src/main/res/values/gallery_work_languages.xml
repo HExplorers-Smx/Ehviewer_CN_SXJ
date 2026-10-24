@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gallery_work_language_title">Browse language priority / group translations</string>
+    <string-array name="gallery_work_language_choices">
+        <item>Show every version (disable grouping)</item>
+        <item>Group duplicates (no language priority)</item>
+        <item>Group duplicates · Chinese preferred</item>
+        <item>Group duplicates · Japanese preferred</item>
+        <item>Group duplicates · English preferred</item>
+        <item>Group duplicates · Korean preferred</item>
+        <item>Group duplicates · Spanish preferred</item>
+        <item>Group duplicates · Russian preferred</item>
+        <item>Group duplicates · French preferred</item>
+        <item>Group duplicates · Portuguese preferred</item>
+        <item>Group duplicates · Thai preferred</item>
+        <item>Group duplicates · German preferred</item>
+        <item>Group duplicates · Italian preferred</item>
+        <item>Group duplicates · Vietnamese preferred</item>
+        <item>Group duplicates · Polish preferred</item>
+        <item>Group duplicates · Hungarian preferred</item>
+        <item>Group duplicates · Dutch preferred</item>
+    </string-array>
+    <string name="gallery_work_language_chip_default">Chinese first · Dedup ▾</string>
+    <string name="gallery_work_language_chip_format">%1$s ▾</string>
+    <string-array name="gallery_work_language_short_choices">
+        <item>All versions</item>
+        <item>Auto deduplicate</item>
+        <item>Chinese first · Dedup</item>
+        <item>Japanese first · Dedup</item>
+        <item>English first · Dedup</item>
+        <item>Korean first · Dedup</item>
+        <item>Spanish first</item>
+        <item>Russian first</item>
+        <item>French first</item>
+        <item>Portuguese first</item>
+        <item>Thai first</item>
+        <item>German first</item>
+        <item>Italian first</item>
+        <item>Vietnamese first</item>
+        <item>Polish first</item>
+        <item>Hungarian first</item>
+        <item>Dutch first</item>
+    </string-array>
+</resources>

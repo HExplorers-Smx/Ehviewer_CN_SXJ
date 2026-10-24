@@ -15,6 +15,17 @@ android {
 //    buildToolsVersion "30.0.3"
 //    ndkVersion '26.1.10909125'
 
+    // Keep ordinary local builds unchanged; enable per-ABI APKs in Actions
+    // using -PsplitAbiApks=true.
+    splits {
+        abi {
+            enable (project.findProperty('splitAbiApks') == 'true')
+            reset()
+            include 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+            universalApk true
+        }
+    }
+
     flavorDimensions "distribute"
     productFlavors {
         appRelease {

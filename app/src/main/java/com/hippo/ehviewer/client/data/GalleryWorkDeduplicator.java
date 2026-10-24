@@ -1,0 +1,304 @@
+package com.hippo.ehviewer.client.data;
+
+import java.text.Normalizer;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Groups gallery list entries that are likely to contain the same work.
+ *
+ * This is deliberately conservative: matching titles and approximately matching
+ * page counts are required. It never changes, deletes or blocks gallery records.
+ */
+public final class GalleryWorkDeduplicator {
+
+    public static final String SETTING_KEY = "gallery_preferred_work_language";
+    public static final String DEFAULT_LANGUAGE = "ZH";
+    public static final String SHOW_ALL = "ALL";
+    public static final String AUTO = "AUTO";
+
+    // Includes SHOW_ALL and AUTO for the browse dialog.
+    public static final String[] LANGUAGE_CHOICES = {
+            SHOW_ALL, AUTO, "ZH", "JA", "EN", "KO", "ES", "RU", "FR",
+            "PT", "TH", "DE", "IT", "VI", "PL", "HU", "NL"
+    };
+
+    private static final Pattern BRACKETED = Pattern.compile("\\[[^\\]]{1,80}\\]|\\([^)]{1,80}\\)");
+    private static final Pattern NON_WORD = Pattern.compile("[\\p{P}\\p{S}\\s]+");
+    private static final Pattern ALIAS_SEPARATOR = Pattern.compile("\\s+[|｜/]\\s+");
+    private static final Pattern COVER_SIZE = Pattern.compile("_(?:100|150|200|250|300|500)(?=\\.(?:jpg|jpeg|png|webp)$)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern JAPANESE_KANA = Pattern.compile("[\\u3040-\\u30ff]");
+    private static final Pattern NOTE_LANGUAGE = Pattern.compile(
+            "(?i)(?:^|\\W)(?:chinese|english|japanese|korean|spanish|russian|french|"
+                    + "portuguese|thai|german|italian|vietnamese|polish|hungarian|dutch|"
+                    + "中文|中国語|中國語|日本語|英文|英訳|英語|韓国語|汉化|漢化|翻译|翻譯|翻訳|"
+                    + "translated|translation|scanlation)(?:$|\\W)");
+    private static final Pattern NON_WORK_NOTE = Pattern.compile(
+            "(?i)(?:digital|digital版|dl版|scan|scanned|uncensored|decensored|"
+                    + "full[ -]?color|colorized|電子版|無修正|无修正|無碼|无码|无删减|"
+                    + "修正版|フルカラー|電子書籍|第?[0-9]{2,3}回|^c[0-9]{2,3}$)");
+    private static final Pattern TRANSLATOR_GROUP = Pattern.compile(
+            ".*(?:汉化|漢化|翻译|翻譯|翻訳|scanlation|translated|translation).*",
+            Pattern.CASE_INSENSITIVE);
+
+    private GalleryWorkDeduplicator() { }
+
+    public static boolean isEnabled(String language) {
+        return language != null && !SHOW_ALL.equals(language);
+    }
+
+    /**
+     * Prefers a requested translation, falling back to the earliest listed
+     * edition if the translation is unavailable.
+     */
+    public static List<GalleryInfo> reducePage(List<GalleryInfo> source, String language) {
+        List<GalleryInfo> result = new ArrayList<>();
+        if (source == null) {
+            return result;
+        }
+        if (!isEnabled(language)) {
+            result.addAll(source);
+            return result;
+        }
+
+        List<GalleryInfo> entries = new ArrayList<>();
+        for (GalleryInfo item : source) {
+            if (item != null) {
+                entries.add(item);
+            }
+        }
+
+        // A and B can share the Japanese title, while B and C share a
+        // translated alias. Compare ALL entries in the fetched page so a
+        // middle candidate isn't discarded before linking the whole work.
+        int n = entries.size();
+        int[] parent = new int[n];
+        for (int i = 0; i < n; i++) {
+            parent[i] = i;
+        }
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                if (isSameWork(entries.get(i), entries.get(j))) {
+                    parent[findRoot(parent, j)] = findRoot(parent, i);
+                }
+            }
+        }
+
+        int[] best = new int[n];
+        boolean[] emitted = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            best[i] = -1;
+        }
+        for (int i = 0; i < n; i++) {
+            int root = findRoot(parent, i);
+            if (best[root] == -1 || prefer(entries.get(i), entries.get(best[root]), language)) {
+                best[root] = i;
+            }
+        }
+        // Preserve the first occurrence position of every work, even if its
+        // selected language version appears later in the same page.
+        for (int i = 0; i < n; i++) {
+            int root = findRoot(parent, i);
+            if (!emitted[root]) {
+                result.add(entries.get(best[root]));
+                emitted[root] = true;
+            }
+        }
+        return result;
+    }
+
+    private static int findRoot(int[] parent, int index) {
+        if (parent[index] != index) {
+            parent[index] = findRoot(parent, parent[index]);
+        }
+        return parent[index];
+    }
+
+    public static boolean prefer(GalleryInfo candidate, GalleryInfo current, String language) {
+        return score(candidate, language) > score(current, language);
+    }
+
+    private static int score(GalleryInfo info, String language) {
+        if (info == null || AUTO.equals(language) || SHOW_ALL.equals(language)) {
+            return 0;
+        }
+        String actualLanguage = info.simpleLanguage;
+        if (actualLanguage == null && info.simpleTags != null) {
+            for (String tag : info.simpleTags) {
+                if (tag != null && tag.equalsIgnoreCase("language:japanese")) {
+                    actualLanguage = "JA";
+                    break;
+                }
+            }
+        }
+        // Some original Japanese works carry no language tag at all.
+        // Prefer them only when the title contains kana; otherwise keep them as fallback.
+        if ("JA".equalsIgnoreCase(language) && actualLanguage == null
+                && ((info.title != null && JAPANESE_KANA.matcher(info.title).find())
+                || (info.titleJpn != null && JAPANESE_KANA.matcher(info.titleJpn).find()))) {
+            return 1;
+        }
+        return language.equalsIgnoreCase(actualLanguage) ? 1 : 0;
+    }
+
+    public static boolean isSameWork(GalleryInfo a, GalleryInfo b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        if (a.gid != 0 && a.gid == b.gid) {
+            return true;
+        }
+        // A manga and an image set with the same generic title are not reliably the same work.
+        if (a.category != b.category) {
+            return false;
+        }
+        if (a.pages > 0 && b.pages > 0) {
+            int tolerance = Math.max(4, Math.max(a.pages, b.pages) / 5);
+            if (Math.abs(a.pages - b.pages) > tolerance) {
+                return false;
+            }
+        }
+        if (hasMatchingTitle(a, b)) {
+            return true;
+        }
+
+        // A genuinely identical cover thumbnail is a stronger link than a
+        // translated title. E-Hentai gallery covers use content-addressed
+        // image paths. Require a long, image-like path plus overlapping
+        // creator/series tags to avoid grouping generic placeholder images.
+        return hasMatchingCover(a, b) && hasSharedIdentityTag(a, b);
+    }
+
+    private static boolean hasMatchingTitle(GalleryInfo a, GalleryInfo b) {
+        for (String left : titleAlternates(a)) {
+            for (String right : titleAlternates(b)) {
+                if (equalNonempty(left, right)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static List<String> titleAlternates(GalleryInfo info) {
+        List<String> result = new ArrayList<>();
+        appendAlternates(result, info.title);
+        appendAlternates(result, info.titleJpn);
+        return result;
+    }
+
+    private static void appendAlternates(List<String> result, String title) {
+        if (title == null || title.isEmpty()) {
+            return;
+        }
+        result.add(normalize(title));
+        // Some submissions put original and translated names in the same title.
+        // Require spaced separators so slashes in standalone titles do not
+        // accidentally become content-free matches.
+        String[] aliases = ALIAS_SEPARATOR.split(title, 4);
+        if (aliases.length > 1) {
+            for (String alias : aliases) {
+                String key = normalize(alias);
+                if (isMeaningfulTitleKey(key)) {
+                    result.add(key);
+                }
+            }
+        }
+    }
+
+    private static boolean hasSharedIdentityTag(GalleryInfo a, GalleryInfo b) {
+        return anyCommonTag(a, b, "artist:")
+                || anyCommonTag(a, b, "group:")
+                || anyCommonTag(a, b, "parody:");
+    }
+
+    private static boolean anyCommonTag(GalleryInfo a, GalleryInfo b, String namespace) {
+        if (a.simpleTags == null || b.simpleTags == null) {
+            return false;
+        }
+        for (String left : a.simpleTags) {
+            if (left == null || !left.toLowerCase(Locale.ROOT).startsWith(namespace)) {
+                continue;
+            }
+            for (String right : b.simpleTags) {
+                if (right != null && left.equalsIgnoreCase(right)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasMatchingCover(GalleryInfo a, GalleryInfo b) {
+        String left = coverKey(a.thumb);
+        String right = coverKey(b.thumb);
+        return !left.isEmpty() && left.equals(right);
+    }
+
+    private static String coverKey(String thumb) {
+        if (thumb == null || thumb.isEmpty()) {
+            return "";
+        }
+        try {
+            String path = new URI(thumb).getPath();
+            if (path == null || path.length() < 35) {
+                return "";
+            }
+            String lower = path.toLowerCase(Locale.ROOT);
+            if (!(lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                    || lower.endsWith(".png") || lower.endsWith(".webp"))) {
+                return "";
+            }
+            // Exclude short generic images, loading indicators and placeholders.
+            String name = lower.substring(lower.lastIndexOf('/') + 1);
+            if (name.length() < 15 || name.contains("default")
+                    || name.contains("placeholder") || name.contains("blank")) {
+                return "";
+            }
+            return COVER_SIZE.matcher(lower).replaceFirst("");
+        } catch (URISyntaxException e) {
+            return "";
+        }
+    }
+
+    private static boolean equalNonempty(String first, String second) {
+        return first.equals(second) && isMeaningfulTitleKey(first);
+    }
+
+    private static boolean isMeaningfulTitleKey(String title) {
+        // Three-character Han/kana names are common; empty or one-word generic
+        // English fragments aren't safe keys for collapsing entire galleries.
+        return title.length() >= 5
+                || (title.length() >= 3
+                && title.matches(".*[\\u3400-\\u9fff\\u3040-\\u30ff].*"));
+    }
+
+    private static String normalize(String input) {
+        if (input == null) {
+            return "";
+        }
+        String text = Normalizer.normalize(input, Normalizer.Form.NFKC)
+                .replace('【', '[').replace('】', ']')
+                .replace('（', '(').replace('）', ')');
+        Matcher matcher = BRACKETED.matcher(text);
+        StringBuffer stripped = new StringBuffer();
+        while (matcher.find()) {
+            String note = matcher.group();
+            String contents = note.substring(1, note.length() - 1).trim();
+            boolean translatorGroup = TRANSLATOR_GROUP.matcher(contents).matches();
+            boolean explicitLanguage = NOTE_LANGUAGE.matcher(" " + contents + " ").find();
+            boolean editionNote = NON_WORK_NOTE.matcher(contents).find();
+            matcher.appendReplacement(stripped,
+                    (translatorGroup || explicitLanguage || editionNote)
+                            ? " " : Matcher.quoteReplacement(note));
+        }
+        matcher.appendTail(stripped);
+        return NON_WORD.matcher(stripped.toString().toLowerCase(Locale.ROOT))
+                .replaceAll("").trim();
+    }
+}

@@ -83,6 +83,14 @@
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:contentDescription="@string/gallery_work_language_title"
+            app:srcCompat="@drawable/ic_twotone_sort_24"
+            app:backgroundTint="?attr/widgetColorThemeAccent"
+            style="@style/Widget.Design.FloatingActionButton.Mini"/>
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             app:backgroundTint="?attr/widgetColorThemePrimary"
             style="@style/Widget.Design.FloatingActionButton"/>
 
@@ -107,4 +115,23 @@
             style="@style/Widget.Design.FloatingActionButton"/>
 
     </com.hippo.widget.FabLayout>
+
+    <!-- Always-visible language priority entry: unlike the expanded FAB menu,
+         this stays discoverable while browsing the gallery list. -->
+    <com.google.android.material.chip.Chip
+        android:id="@+id/gallery_language_chip"
+        style="@style/CustomChipChoice"
+        android:theme="@style/ClipTheme"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="12dp"
+        android:layout_marginBottom="16dp"
+        android:clickable="true"
+        android:focusable="true"
+        app:checkable="false"
+        android:maxWidth="230dp"
+        android:contentDescription="@string/gallery_work_language_title"
+        android:text="@string/gallery_work_language_chip_default"/>
+
 </FrameLayout>

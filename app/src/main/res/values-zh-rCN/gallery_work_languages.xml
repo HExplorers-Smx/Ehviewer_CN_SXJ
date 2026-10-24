@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gallery_work_language_title">语言优先与重复作品合并</string>
+    <string-array name="gallery_work_language_choices">
+        <item>显示全部版本（关闭去重）</item>
+        <item>合并重复作品（不指定语言）</item>
+        <item>合并重复作品 · 中文优先</item>
+        <item>合并重复作品 · 日文优先</item>
+        <item>合并重复作品 · 英文优先</item>
+        <item>合并重复作品 · 韩文优先</item>
+        <item>合并重复作品 · 西班牙语优先</item>
+        <item>合并重复作品 · 俄语优先</item>
+        <item>合并重复作品 · 法语优先</item>
+        <item>合并重复作品 · 葡萄牙语优先</item>
+        <item>合并重复作品 · 泰语优先</item>
+        <item>合并重复作品 · 德语优先</item>
+        <item>合并重复作品 · 意大利语优先</item>
+        <item>合并重复作品 · 越南语优先</item>
+        <item>合并重复作品 · 波兰语优先</item>
+        <item>合并重复作品 · 匈牙利语优先</item>
+        <item>合并重复作品 · 荷兰语优先</item>
+    </string-array>
+    <string name="gallery_work_language_chip_default">中文优先 · 去重 ▾</string>
+    <string name="gallery_work_language_chip_format">%1$s ▾</string>
+    <string-array name="gallery_work_language_short_choices">
+        <item>显示所有语言</item>
+        <item>自动合并重复</item>
+        <item>中文优先 · 去重</item>
+        <item>日文优先 · 去重</item>
+        <item>英文优先 · 去重</item>
+        <item>韩文优先 · 去重</item>
+        <item>西班牙语优先</item>
+        <item>俄语优先</item>
+        <item>法语优先</item>
+        <item>葡萄牙语优先</item>
+        <item>泰语优先</item>
+        <item>德语优先</item>
+        <item>意大利语优先</item>
+        <item>越南语优先</item>
+        <item>波兰语优先</item>
+        <item>匈牙利语优先</item>
+        <item>荷兰语优先</item>
+    </string-array>
+</resources>
