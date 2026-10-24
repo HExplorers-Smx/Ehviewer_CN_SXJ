@@ -206,6 +206,8 @@ public final class GalleryListScene extends BaseScene
     @Nullable
     private FloatingActionButton mFloatingActionButton;
     @Nullable
+    private Chip mLanguageChip;
+    @Nullable
     private ViewTransition mViewTransition;
     @Nullable
     private GalleryListAdapter mAdapter;
@@ -650,7 +652,10 @@ public final class GalleryListScene extends BaseScene
         mSearchLayout = (SearchLayout) ViewUtils.$$(mainLayout, R.id.search_layout);
         mSearchBar = (SearchBar) ViewUtils.$$(mainLayout, R.id.search_bar);
         mFabLayout = (FabLayout) ViewUtils.$$(mainLayout, R.id.fab_layout);
-        mFloatingActionButton = (FloatingActionButton) ViewUtils.$$(mFabLayout, R.id.tag_filter);
+        mFloatingActionButton = (FloatingActionButton) ViewUtils.$(mFabLayout, R.id.tag_filter);
+        mLanguageChip = (Chip) ViewUtils.$(mainLayout, R.id.gallery_language_chip);
+        mLanguageChip.setOnClickListener(v -> showPreferredLanguageDialog());
+        updateLanguageChip();
 
         onFilter(filterOpen, filterTagList.size());
 
@@ -946,6 +951,7 @@ public final class GalleryListScene extends BaseScene
         mSearchLayout = null;
         mSearchBar = null;
         mSearchFab = null;
+        mLanguageChip = null;
         mViewTransition = null;
         mLeftDrawable = null;
         mRightDrawable = null;
@@ -1497,6 +1503,23 @@ public final class GalleryListScene extends BaseScene
         view.setExpanded(false);
     }
 
+    private void updateLanguageChip() {
+        if (mLanguageChip == null) {
+            return;
+        }
+        String current = Settings.getString(
+                GalleryWorkDeduplicator.SETTING_KEY, GalleryWorkDeduplicator.DEFAULT_LANGUAGE);
+        int selected = 2;
+        for (int i = 0; i < GalleryWorkDeduplicator.LANGUAGE_CHOICES.length; i++) {
+            if (GalleryWorkDeduplicator.LANGUAGE_CHOICES[i].equals(current)) {
+                selected = i;
+                break;
+            }
+        }
+        String[] labels = getResources2().getStringArray(R.array.gallery_work_language_short_choices);
+        mLanguageChip.setText(getString(R.string.gallery_work_language_chip_format, labels[selected]));
+    }
+
     private void showPreferredLanguageDialog() {
         Context context = getEHContext();
         if (context == null) {
@@ -1519,6 +1542,7 @@ public final class GalleryListScene extends BaseScene
                     }
                     Settings.putString(GalleryWorkDeduplicator.SETTING_KEY,
                             GalleryWorkDeduplicator.LANGUAGE_CHOICES[which]);
+                    updateLanguageChip();
                     dialog.dismiss();
                     if (mHelper != null) {
                         // Reload raw galleries so previously collapsed versions can be reconsidered.
@@ -2122,6 +2146,10 @@ public final class GalleryListScene extends BaseScene
         @Override
         public void onGetPageData(int taskId, GalleryListParser.Result result,
                                   List<GalleryInfo> data) {
+            if (!isCurrentTask(taskId)) {
+                // A stale request must never replace rows of the current list.
+                return;
+            }
             String language = Settings.getString(
                     GalleryWorkDeduplicator.SETTING_KEY, GalleryWorkDeduplicator.DEFAULT_LANGUAGE);
             if (GalleryWorkDeduplicator.isEnabled(language) && data != null) {
