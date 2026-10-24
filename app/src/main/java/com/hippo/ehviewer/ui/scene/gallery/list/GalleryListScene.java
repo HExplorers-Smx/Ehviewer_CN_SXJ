@@ -652,8 +652,8 @@ public final class GalleryListScene extends BaseScene
         mSearchLayout = (SearchLayout) ViewUtils.$$(mainLayout, R.id.search_layout);
         mSearchBar = (SearchBar) ViewUtils.$$(mainLayout, R.id.search_bar);
         mFabLayout = (FabLayout) ViewUtils.$$(mainLayout, R.id.fab_layout);
-        mFloatingActionButton = (FloatingActionButton) ViewUtils.$(mFabLayout, R.id.tag_filter);
-        mLanguageChip = (Chip) ViewUtils.$(mainLayout, R.id.gallery_language_chip);
+        mFloatingActionButton = (FloatingActionButton) ViewUtils.$$(mFabLayout, R.id.tag_filter);
+        mLanguageChip = (Chip) ViewUtils.$$(mainLayout, R.id.gallery_language_chip);
         mLanguageChip.setOnClickListener(v -> showPreferredLanguageDialog());
         updateLanguageChip();
 
