@@ -109,4 +109,31 @@ public class GalleryWorkDeduplicatorTest {
         assertFalse(GalleryWorkDeduplicator.isSameWork(first, second));
     }
 
+    @Test
+    public void collapsesSameWorkWithinOnePageViaBridgeTranslation() {
+        GalleryInfo original = gallery(500, "[Artist] Morning Glory [Japanese]", "JA", 26);
+        GalleryInfo bridge = gallery(501,
+                "[Artist] Morning Glory | 花之歌 [English]", "EN", 27);
+        GalleryInfo preferred = gallery(502, "花之歌 [Chinese]", "ZH", 25);
+        List<GalleryInfo> grouped = GalleryWorkDeduplicator.reducePage(
+                Arrays.asList(original, bridge, preferred), "ZH");
+        assertEquals(1, grouped.size());
+        assertEquals(502, grouped.get(0).gid);
+    }
+
+    @Test
+    public void collapsesDigitalAndEventLabelsButPreservesDifferentChapters() {
+        GalleryInfo original = gallery(510,
+                "(C94) [Circle] The Same Book [Digital] [Japanese]", "JA", 19);
+        GalleryInfo translated = gallery(511,
+                "[Circle] The Same Book [Chinese] [Uncensored]", "ZH", 20);
+        GalleryInfo volumeTwo = gallery(512,
+                "[Circle] The Same Book Vol 2 [English]", "EN", 21);
+        List<GalleryInfo> grouped = GalleryWorkDeduplicator.reducePage(
+                Arrays.asList(original, translated, volumeTwo), "ZH");
+        assertEquals(2, grouped.size());
+        assertEquals(511, grouped.get(0).gid);
+        assertEquals(512, grouped.get(1).gid);
+    }
+
 }
