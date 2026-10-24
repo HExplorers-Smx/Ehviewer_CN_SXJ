@@ -128,7 +128,7 @@
         android:layout_marginBottom="16dp"
         android:clickable="true"
         android:focusable="true"
-        android:checkable="false"
+        app:checkable="false"
         android:maxWidth="230dp"
         android:contentDescription="@string/gallery_work_language_title"
         android:text="@string/gallery_work_language_chip_default"/>
